@@ -1,0 +1,74 @@
+{
+  "name": "@ai4rpg/dsh-tavern-preset",
+  "description": "DSH agent preset for the tavern-cards workflow: the stage machine, project tooling, tavern skills, and named-subagent tools composed into one declared preset",
+  "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "skills",
+    "persona.yml",
+    "docs",
+    "README.md",
+    "README.zh.md",
+    "LICENSE.md",
+    "scripts/gen-preset.mjs",
+    "scripts/sync-skills.mjs"
+  ],
+  "scripts": {
+    "gen": "node scripts/gen-preset.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ai4rpg/dsh-stage-switch": "^0.2.0",
+    "@ai4rpg/dsh-tavern-stages": "^0.1.0",
+    "@ai4rpg/dsh-ui-sidebar-stage": "^0.1.0",
+    "@ai4rpg/tavern-agents": "file:../tavern-agents"
+  },
+  "devDependencies": {
+    "@ai4rpg/dsh-stage-switch": "^0.2.0",
+    "@ai4rpg/dsh-tavern-stages": "^0.1.0",
+    "@ai4rpg/dsh-ui-sidebar-stage": "^0.1.0",
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/cordis-plugin-include": "^1.0.9",
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.5",
+    "@deepseek-ai/dsh-agent": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent-instructions": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent-loop": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent-loop-testkit": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent-preset": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent-preset-registry": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-persona": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-scope": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-session": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-session-projection": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-skill": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-skill-filesystem": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-subagent": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-subagent-in-process-driver": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-subagent-spawn-in-process": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-token-meter": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tool-subagent": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-web-app": "^0.2.0-rc.2",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0",
+    "yaml": "^2.8.4"
+  },
+  "//dependencies-note": "The @ai4rpg dependencies are versioned ranges — kept for manifest hygiene, not because a registry resolves them all. @ai4rpg/dsh-tavern-stages ships on npm and is installed into the profile as this preset's dependency; @ai4rpg/tavern-agents is the one deliberate exception, pinned to its sibling checkout (file:../tavern-agents) because it is CC persona content that never ships on npm — the content repo is self-contained, so the relative spec travels with the download, and pnpm resolves it against the repo and places the personas where the plugin's createRequire reaches them (the profile's hidden hoist layer under node_modules/.pnpm). In-repo dev installs of the plugin use a --no-save directory install of a local tavern-stages checkout. The preset's rows name these packages, and the DSH profile's pnpm install makes them resolvable from the preset tree. @ai4rpg/dsh-tavern-stages carries the stage config (tavernCardsStageConfig) and the named-subagent providers this preset composes; @ai4rpg/dsh-stage-switch is the stage machine its stage-switch row mounts (declared explicitly because that row is ours, not a transitive detail); @ai4rpg/dsh-ui-sidebar-stage backs the host-plane sidebar tab row the generated patch carries. The @deepseek-ai/* entries are the upstream DSH packages the composed rows need at test time plus the official base composition (@deepseek-ai/dsh-web-app/presets/standard.patch.yml) the generator derives from."
+}
