@@ -9,7 +9,16 @@ English | [中文](README.zh.md)
 
 ## Install
 
-Clone this repo, then:
+The installer script automates the manual flow below: it downloads this repo to `~/tavern-content` (an existing checkout is pulled forward instead), then installs the preset package into a dsh profile, which brings the tavern plugins in from npm as its dependencies.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ai4rpg/tavern-content/main/install.sh -o install.sh
+bash install.sh --profile web --verify
+```
+
+On Windows, fetch `install.ps1` the same way and run it with `powershell -ExecutionPolicy Bypass -File install.ps1`. Inside an existing clone, run `bash install.sh` in place. Re-running the script updates the checkout and reinstalls; `--remove` uninstalls the preset while keeping the checkout. See the script header for all flags.
+
+Manual install:
 
 ```sh
 git clone https://github.com/ai4rpg/tavern-content
