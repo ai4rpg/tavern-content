@@ -20,7 +20,7 @@ Everything else in the preset is the official `standard` composition (file tools
 ## Requirements
 
 - `dsh` on the `0.2` line — an installed CLI, or a dsh source checkout where you run the launcher through `pnpm dsh …`. The profile composes `dsh-base` + `dsh-web-app`, which provide the session, tool, skill, subagent, token-meter, and session-projection services the preset's rows resolve from.
-- Node.js `^22.19 || >=24` and `pnpm` on `PATH`: `dsh plugin` forwards to pnpm (`npm install -g pnpm`, or enable corepack).
+- Node.js `^22.19 || >=24` and `pnpm` on `PATH`: `dsh plugin` forwards to pnpm (`npm install -g pnpm`, or enable corepack). The official desktop client is the exception — it installs through its own bundled pnpm and dsh, so it needs neither of them on this machine.
 - Network access to the npm registry — the first command pulls dsh's own dependency tree into the profile.
 - This preset package is a **local checkout, not an npm package**: the install command points at the preset folder inside the cloned content repo. The plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as its dependency; the persona content package (`@ai4rpg/tavern-agents`) rides the preset's own `file:` dependency on its sibling folder in the same repo.
 - A model provider and API key, configured in the Web UI under **Settings → Providers** before the first session.
@@ -39,11 +39,53 @@ From a dsh source checkout, prefix the launcher: `pnpm dsh plugin --profile web 
 - `@ai4rpg/dsh-tavern-stages` arrives as a dependency, so adding it by hand is unnecessary; the preset package is the single install path.
 - To make the tavern preset the default for new sessions, set `agent-presets.default: tavern-standard` in `settings.yaml` or on the Web settings page; that is a user-side choice.
 
+## Official desktop client (Electron)
+
+The desktop client does not read the `web` profile. It reads the application-owned `desktop` profile (`$DSH_HOME/profiles/desktop`), which a standalone npm-installed `dsh` CLI refuses on all three paths — boot, `--dump-config`, and `dsh plugin` — with one message:
+
+`error: profile "desktop" is managed exclusively by the Electron application`
+
+So the `--profile web` command above does not apply to the desktop client: whatever lands in `web` is invisible to the desktop window. Three routes work there; the first is the least work.
+
+### 1. The client's own bundled dsh (recommended)
+
+The client ships a CLI that may manage the `desktop` profile. It runs on the application's bundled pnpm, so this machine needs neither node nor pnpm:
+
+- Register it from the client's **Manage dsh command…** menu item (macOS installs `/usr/local/bin/dsh`; Windows registers it on the current user's PATH), or
+- call the launcher inside the application bundle directly: macOS `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`, Windows `<install dir>\resources\runtime\cli\bin\dsh.cmd`.
+
+Launch the desktop client once so the application creates its profile, then **quit it completely** (⌘Q on macOS, system tray included on Windows; while the app runs, package operations wait for the profile write lock):
+
+```sh
+dsh plugin --profile desktop add file:<absolute path to tavern-preset inside your tavern-content clone>
+```
+
+Reopen the client to pick the change up. The repo's `bash install.sh --profile desktop` (Windows: `powershell -ExecutionPolicy Bypass -File install.ps1 -ProfileName desktop`) prepares the checkout, probes for that dsh, and runs those two commands for you; when the probe finds nothing (for example before you register the command on PATH), point `--desktop-cli <path>` at the launcher in the application bundle, or take route 2.
+
+### 2. The sidebar Plugins page
+
+The client's sidebar **Plugins** page manages the current profile. Its install field accepts an absolute local directory path (a `file:` prefix works too): enter the absolute path to `<clone>/tavern-preset`. This route needs no terminal and no command on PATH.
+
+### 3. plugin_manager in a session
+
+A desktop session's agent can also install through the host's built-in `plugin_manager`, with the same local directory spec `file:<clone>/tavern-preset` as the target. **This route has a precondition: the session must run the `cordis` preset** — `plugin_manager` is switched off in both the `dsh-base` and `dsh-web-app` layers and only the `cordis` preset's sessions carry it. A `Tavern Cards` session does not, so it cannot install the preset it is running on; start a `cordis`-preset session first.
+
+### Upgrade, uninstall, and self-check
+
+- Upgrade: pull the content repo (`git -C <clone> pull`), then install the same source again through any route above.
+- Uninstall: run the same command with `remove @ai4rpg/dsh-tavern-preset` instead of `add`, or `bash install.sh --profile desktop --remove`.
+- Self-check: in the desktop profile's `package.json`, `dependencies` should carry `@ai4rpg/dsh-tavern-preset` (a local directory install records a `file:` spec) and `dsh.profile.bundles` should list `@ai4rpg/dsh-tavern-preset`.
+- Activation: after quitting and reopening the client completely, a new session's preset chip offers **Tavern Cards** and the right sidebar shows the stage tab.
+- Do not manage the desktop client with `--profile web` commands, and do not edit its profile files by hand.
+
+
 ## Verify
 
 ```sh
 dsh --profile web --dump-config | grep -nE 'tavern-preset|preset-tavern-standard|ui-sidebar-stage'
 ```
+
+The desktop client skips this section: `--dump-config` is refused there too, so use the desktop self-check above.
 
 The dump prints one `# == <layer>` comment per source layer. You should see `# == @ai4rpg/dsh-tavern-preset` followed by the `preset-tavern-standard` row (declaring `config.id: tavern-standard`) and the `ui-sidebar-stage` row. A missing layer means the package is not installed in that profile; a declaration that failed to mount stays on the roster with a diagnostic; read it verbatim.
 
@@ -110,6 +152,12 @@ This removes the preset and its dependencies from the profile. Sessions that ran
 | The wrong review-dialog language | Set `language` on the preset's `stage-switch` row (`zh` shipped, `en` for English), as described above. |
 | An upgrade changed nothing | Open a NEW session (running sessions keep their revision), and remember that an edited preset is not merged — reinstall or re-apply. |
 | A former tavern session refuses to resume after removal | The preset id is a resume contract: reinstall the package to resume that session. |
+| `dsh plugin --profile desktop …` fails with `profile "desktop" is managed exclusively by the Electron application` | That is the npm-installed standalone CLI, which cannot change the desktop profile. Use the client's own bundled `dsh`, the sidebar Plugins page, or `plugin_manager`, as in “Official desktop client”. |
+| Nothing appears in the desktop client after installing | Quit the client completely (system tray included) and reopen it; also confirm `dsh.profile.bundles` in the desktop profile lists `@ai4rpg/dsh-tavern-preset`. |
+| The desktop profile is not initialized yet | Launch the desktop client once (it creates `$DSH_HOME/profiles/desktop`), quit it completely, then run the install command or `install.sh --profile desktop`. |
+| The desktop client cannot find pnpm | The client's bundled `dsh` never looks for pnpm on `PATH`; it uses the copy the application ships. This error usually means the command ran on the npm-installed `dsh` instead. |
+| A session has no `plugin_manager` tool | It is enabled only for `cordis`-preset sessions (`dsh-base` and `dsh-web-app` both switch it off). Use the client's bundled `dsh` or the Plugins page, or start a `cordis`-preset session. |
+| The preset chip still has no Tavern Cards after installing | `desktop` and `web` are two separate profiles, and each sees only its own installs; confirm you installed into the desktop one, then restart the client completely. |
 
 ## License
 

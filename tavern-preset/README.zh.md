@@ -20,17 +20,11 @@ tavern 上下文是**按会话**的：只在本预设上创建的会话里加载
 dsh plugin --profile <name> add file:<本检出的绝对路径>
 ```
 
-本包是本地检出，不是 npm 包；它拉进来的插件（`@ai4rpg/dsh-tavern-stages`）发 npm。安装命令指向磁盘上的文件夹；路径必须是绝对路径（`dsh plugin` 拒绝相对 spec）。完整配方见 `docs/install-guide.zh.md`。
+本包是本地检出，不是 npm 包；拉进来的插件（`@ai4rpg/dsh-tavern-stages`）发 npm。安装命令指向磁盘上的文件夹；路径必须是绝对路径（`dsh plugin` 拒绝相对 spec），安装的目标就是本检出目录本身。
 
-核对 profile 组合：
+官方桌面端（Electron 客户端）用的是应用独占的 `desktop` profile，独立安装的 `dsh` 管不了它。在应用内安装：用客户端自带的 `dsh`（菜单**管理 dsh 命令…**会把它注册到 PATH）跑上面那条命令，或把同样的路径填进侧边栏**插件**页的安装框。也可以在检出里跑 `bash install.sh --profile desktop`，脚本会准备检出并替你跑那条自带的 `dsh`。
 
-```sh
-dsh --profile <name> --dump-config | grep -n 'tavern-preset\|preset-tavern-standard\|ui-sidebar-stage'
-```
-
-dump 里应出现 `# == @ai4rpg/dsh-tavern-preset` 层、`preset-tavern-standard` 声明行与一行已激活的 `ui-sidebar-stage`。然后启动 profile，在新会话的预设 chip 里选 **Tavern Cards**（空白会话仍可切换）。想让 tavern 成为新会话默认，在 `settings.yaml` / Web 设置页设 `agent-presets.default: tavern-standard`；那是用户侧选择。
-
-前置条件：0.2 版本线的 dsh profile（`dsh-base` / `dsh-web-app` 组合会话、工具、技能、子代理、token-meter 与 session-projection 这些服务，预设各行从它们解析）。无需额外安装步骤：profile 的 pnpm 安装会装好本包的依赖，预设各行按包名解析它们。
+**完整步骤见 `docs/install-guide.zh.md`**：命令行 profile 见「安装」与「校验」，桌面端见「官方桌面端」（一条命令脚本、`plugin_manager` 备用路、排错）。
 
 ## 预设包含什么
 

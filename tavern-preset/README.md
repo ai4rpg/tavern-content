@@ -20,17 +20,11 @@ Tavern context is **per-session**: it loads only in sessions started on this pre
 dsh plugin --profile <name> add file:<absolute path to this checkout>
 ```
 
-This package is a local checkout, not an npm package; the plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) ships on npm. The install command points at the folder on disk; use an absolute path, since `dsh plugin` refuses a relative spec. See `docs/install-guide.md` for the full recipe.
+This package ships as a local checkout, not an npm package; the plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) does come from npm. Point the command at the folder on disk; the path must be absolute (`dsh plugin` refuses a relative spec), and the install target is this checkout's own folder.
 
-Verify the profile composition:
+The official desktop client (Electron) uses its own `desktop` profile, which a standalone `dsh` cannot manage. Install there from inside the app: run the command above with the client's bundled `dsh` (the **Manage dsh command…** menu item registers it on `PATH`), or enter the same file path on the sidebar **Plugins** page. Alternatively run `bash install.sh --profile desktop` in the checkout; the script prepares it and runs that bundled `dsh` for you.
 
-```sh
-dsh --profile <name> --dump-config | grep -n 'tavern-preset\|preset-tavern-standard\|ui-sidebar-stage'
-```
-
-The dump should show a `# == @ai4rpg/dsh-tavern-preset` layer, the `preset-tavern-standard` declaration row, and an active `ui-sidebar-stage` row. Then start the profile and pick **Tavern Cards** from the new-session preset chip (a blank session can still switch). To make it the default for new sessions, set `agent-presets.default: tavern-standard` in `settings.yaml` / the Web settings page; that is a user-side choice.
-
-Prerequisites: a dsh profile on the 0.2 line (`dsh-base` / `dsh-web-app` compose the session, tool, skill, subagent, token-meter, and session-projection services the preset's rows resolve from). No extra setup step: the profile's pnpm install resolves this package's dependencies, and the preset rows resolve them by name.
+**The full recipe is in `docs/install-guide.md`**: command-line profiles under “Install” and “Verify”, the desktop client under “Official desktop client” (one-command script, `plugin_manager` fallback, troubleshooting).
 
 ## What the preset contains
 
