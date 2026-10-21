@@ -27,24 +27,34 @@ conversion-agent, schema-agent, and first-message-agent are present.
 Do not call anything — just list the names.
 ```
 
-**Pass:** the model names all four delegation tools. If absent, check the browser console for `subagent provider "tavern:..." not registered yet` (the tool rows mount when their provider appears), and confirm the declared preset's tavern group carries the four `tool-subagent-*` rows with `subagents.enabled: true` on its tavern-stages row.
+**Pass:** the model names all four delegation tools. If absent, confirm the session is on `tavern-standard` and the declared tavern group carries the four `tool-subagent-*` rows with `provider: spawn` and an `agentPreset` naming an existing `tavern-child-*` preset; a missing `spawn` provider (dsh 0.2.1's `dsh-subagent-spawn-in-process`) leaves the delegation tool unregistered — the row stays mounted and registers the tool when the provider appears. Read the diagnostic shown at session creation if the group itself failed.
 
-**Model & reasoning-effort default (worth one check):** the shipped preset leaves every `tool-subagent-*` row's `agentOptions` unset, so children follow the deployment/connection route and effort like a plain `subagent` child (a model that rejects `reasoning_effort: max` works out of the box). To pin a per-tool model or force an effort, edit the declared preset — the Web preset editor saves an override row into the profile patch — then open a NEW session: a running session keeps the preset revision it started with.
+**Model & reasoning-effort default (worth one check):** the shipped preset leaves every `tool-subagent-*` row's `agentOptions` unset, so a child starts on the parent session's provider, model, reasoning effort, output-token limit, and working directory — the same defaults as a plain `subagent` child. To pin a per-tool model or force a different effort, edit the declared preset — the Web preset editor saves an override row into the profile patch — then open a NEW session: a running session keeps the preset revision it started with.
 
 ## Layer 3 — minimal delegation smoke (the core mechanism)
 
-Delegate a trivial write-file task and verify the world, not the self-report:
+First create a file with one deliberate violation, using the main agent's tracked editor tools:
 
 ```
-Delegate to check-agent: have it write a file proof.txt in the current
-directory using bash, with the content PROOF_OK. Report the result back.
+Write sample-entry.txt in the current directory with a short character-entry
+paragraph that contains exactly one banned-word violation, for example an
+八股微表情 such as 嘴角微微上扬. Use the write tool, not bash.
+```
+
+Then delegate a read-only review:
+
+```
+Delegate to check-agent: read sample-entry.txt and report every violation you
+find. Do not modify the file. Wait for the completion notification before
+telling me the result.
 ```
 
 **Observe:**
-- The model calls the `check-agent` tool instead of writing the file itself.
-- The child completes the write with the tools it has (`bash` redirection like `printf PROOF_OK > proof.txt`, or the standard `write`).
-- `proof.txt` actually exists in the working directory and contains `PROOF_OK` — **re-read the file**; do not trust the model's summary.
-- The returned text carries the "reviewer / 审稿师" persona voice, confirming the agent body reached the child's first prompt.
+- The model calls the `check-agent` tool instead of reviewing the file itself.
+- The tool returns immediately with an activation id (`{ kind: 'activation', subagentId }`); the review text is **not** in the tool result. The model continues only after the completion notification arrives.
+- The completion notification contains the reviewer's 「通过 / 不通过」 verdict and, for a failure, the location, violation type, original text, and suggestion.
+- `sample-entry.txt` is unchanged: the `check-agent` child is read-only (`tool-fs` with `write` and `edit` off) and has no shell.
+- The notification carries the "reviewer / 审稿师" persona voice, confirming the agent body reached the child's preset persona.
 
 ## Layer 4 — real workflow (end to end)
 
@@ -61,25 +71,31 @@ After aligning, use the tavern-design skill to produce design-spec.md,
 then move to planning. In content, have schema-agent write schema.ts,
 first-message-agent write the opening, and after each entry run check-agent
 for the banned-word scan. Delegate each step to the matching subagent —
-do not write the body content yourself.
+do not write the body content yourself. Treat each delegation as asynchronous:
+wait for the completion notification before moving to the next step that
+depends on it, and let the main agent apply any fix check-agent reports.
 ```
 
 **Observe:**
 - In `content`, the model actively calls `schema-agent` / `first-message-agent` / `check-agent`.
-- `check-agent` reviews from an **independent context** (it is not primed by the main agent's just-written text).
-- Children write project files with `write` / `edit` — **not** `bash` redirection: bash file writes emit no `fs/observed`, so they never feed the project-focus tracker behind `stage:policy`.
+- Each delegation returns an activation id first; the model waits for the corresponding completion notification before using the result.
+- `check-agent` reviews from an **independent, read-only context** (it is not primed by the main agent's just-written text, and it cannot edit the manuscript); the main agent applies its suggested fixes.
+- `schema-agent` and `first-message-agent` write with `write` / `edit` — **not** `bash` redirection: bash file writes emit no `fs/observed`, so they never feed the project-focus tracker behind `stage:policy`. Only `conversion-agent` has shell tools, for `node scripts/validate-conversion-outline.mjs`.
 - `/tavern-pack <project>` produces a card artifact.
 
 ## Layer 5 — triage prompt (when a delegation fails)
 
 ```
-The last check-agent call failed. Do not retry — first answer:
+The last check-agent call did not produce the expected review. Do not retry —
+first answer:
 1. What was the `prompt` argument you passed?
-2. The child's raw error text?
-3. Which tools did the child see on its first turn?
+2. What activation id did the tool return, and did the completion notification
+   arrive?
+3. What did the notification say (or what error text did it carry)?
+4. Which tools did the child see on its first turn?
 ```
 
-This isolates whether the failure is the parent's prompt, the child's tool catalog, or the model route.
+This isolates whether the failure is the parent's prompt, the child's tool catalog, the model route, or a missing completion notification.
 
 ## Verify the world, not the self-report
 

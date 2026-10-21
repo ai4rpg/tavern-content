@@ -14,10 +14,14 @@
  *      (a `!!js` expression resolved against the loader's `baseUrl`) pointing
  *      at this package's own `skills/` directory;
  *   3. the tavern group is appended: the stage-switch row (config =
- *      `tavernCardsStageConfig` from the plugin package + `language: zh`),
- *      the tavern-stages row, and one `tool-subagent` row per
- *      `loadTavernAgents()` entry — so the delegation tools and the providers
- *      they bind to cannot drift.
+ *      `tavernCardsStageConfig` from the plugin package + this deployment's
+ *      display metadata from `stage-display.json`: Chinese aliases and review
+ *      language), the tavern-stages row, and one `tool-subagent` row per
+ *      `loadTavernAgents()` entry — so the delegation tools cannot drift from
+ *      the personas they delegate to;
+ *   4. one child preset per agent is appended: `tavern-child-<agent>` carries
+ *      the agent body as its persona prefix and a narrow tool set derived from
+ *      the same base rows (no stage, delegation, or planning rows).
  *
  * A second inserted row activates the stage sidebar tab on the host plane.
  * The tab cannot ride the preset: the browser module roster only scans the
@@ -28,8 +32,9 @@
  *   node scripts/gen-preset.mjs [--lang=zh|en] [--out <file>]     (default: ./cordis.patch.yml)
  *   node scripts/gen-preset.mjs --stdout
  *
- * Regeneration is idempotent for an unchanged base + plugin package; the
- * output is committed, and `tests/preset.spec.ts` fails if it drifts.
+ * Regeneration is idempotent for an unchanged base + plugin package +
+ * `stage-display.json`; the output is committed, and `tests/preset.spec.ts`
+ * fails if it drifts.
  *
  * @module scripts/gen-preset
  */
@@ -43,6 +48,11 @@ import { loadTavernAgents, tavernCardsStageConfig } from '@ai4rpg/dsh-tavern-sta
 
 const require = createRequire(import.meta.url)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+/** Chinese display metadata lives in the content repo, not in the plugin package. */
+const STAGE_DISPLAY = JSON.parse(readFileSync(join(root, 'stage-display.json'), 'utf8'))
+if (STAGE_DISPLAY.language !== 'zh' && STAGE_DISPLAY.language !== 'en') {
+  throw new Error(`gen-preset: stage-display.json has unsupported language ${JSON.stringify(STAGE_DISPLAY.language)}`)
+}
 
 /** The official base composition, read through `@deepseek-ai/dsh-web-app`'s exports. */
 const BASE_PATCH = '@deepseek-ai/dsh-web-app/presets/standard.patch.yml'
@@ -62,10 +72,31 @@ const SELF_PACKAGE = '@ai4rpg/dsh-tavern-preset'
 const PRESET_ID = 'tavern-standard'
 /** Roster order: official standard=1, ptc=2, minimal=3, cordis=4. */
 const PRESET_ORDER = 5
-/** stage-switch user-facing copy: this deployment ships the Chinese review dialogs. */
-const STAGE_LANGUAGE = 'zh'
-/** The provider prefix the tavern-stages row registers (`tavern:<agent>`). */
-const PROVIDER_PREFIX = 'tavern'
+
+/** Child preset ids are a cold-resume contract (`tavern-child-<agent>`). */
+const CHILD_PRESET_PREFIX = 'tavern-child'
+/** Roster order: the main preset is 5, so its internal children follow at 6..9. */
+const CHILD_PRESET_ORDER = 6
+/**
+ * Rows every child preset carries, cloned from the official base (never
+ * hand-copied). Deltas below stay minimal and are derived from each agent
+ * body's execution flow; re-check them when the personas are synced upstream.
+ */
+const CHILD_BASE_ROW_IDS = [
+  'agent-instructions',
+  'tool-fs',
+  'tool-fs-search',
+  'skill-filesystem',
+  'tool-skill',
+  'compaction',
+]
+const CHILD_ROW_DELTAS = {
+  // The conversion body runs `node scripts/validate-conversion-outline.mjs`.
+  'conversion-agent': { extraRows: ['tool-bash', 'tool-pwsh'] },
+  // The reviewer reports; it never edits the manuscript.
+  'check-agent': { rowConfig: { 'tool-fs': { write: false, edit: false } } },
+}
+const childPresetId = agent => `${CHILD_PRESET_PREFIX}-${agent.name}`
 
 /** Display metadata. Declared presets have no i18n field — dsh translates only
  * its own four built-ins (`presetDisplayText`), so the language is chosen here,
@@ -76,12 +107,18 @@ const DISPLAY_COPY = {
     name: 'Tavern Cards',
     description: '官方 standard 工具集基座 + 写作向 persona + tavern 阶段工作流'
       + '（goto_stage、tavern_forge、tavern 技能）；tavern 上下文只在选用本预设的会话中加载。',
+    childName: agent => `Tavern child · ${agent.name}`,
+    childDescription: agent => `内部子预设，供 ${agent.name} 委派工具使用，不作为用户会话预设选用。`
+      + agent.description,
   },
   en: {
     name: 'Tavern Cards',
     description: 'The official standard toolset with a writing-oriented persona and the tavern'
       + ' stage workflow (goto_stage, tavern_forge, tavern skills); tavern context loads only'
       + ' in sessions on this preset.',
+    childName: agent => `Tavern child · ${agent.name}`,
+    childDescription: agent => `Internal child preset for the ${agent.name} delegation tool;`
+      + ` do not select it for user sessions. ${agent.description}`,
   },
 }
 const LANG_ARG = process.argv.find(arg => arg.startsWith('--lang='))
@@ -116,6 +153,16 @@ function basePlugins() {
   return { base, plugins }
 }
 
+/** The persona row from `persona.yml`, optionally with an agent body as prefix. */
+function personaRow(prefix = undefined) {
+  const [row] = parseDocument(readFileSync(join(root, 'persona.yml'), 'utf8')).toJS()
+  if (row?.name !== PERSONA_PACKAGE) {
+    throw new Error(`gen-preset: persona.yml must declare the ${PERSONA_PACKAGE} row`)
+  }
+  if (prefix !== undefined) row.config = { ...row.config, prefix }
+  return row
+}
+
 /** Replace the base persona row with `persona.yml` (prose override, mechanism untouched). */
 function applyPersonaOverride(base, plugins) {
   const index = plugins.items.findIndex(row => row.get('name') === PERSONA_PACKAGE)
@@ -130,11 +177,7 @@ function applyPersonaOverride(base, plugins) {
       + ` (keys: ${config === undefined ? 'none' : [...config.items].map(item => String(item.key)).join(', ')})`,
     )
   }
-  const [personaRow] = parseDocument(readFileSync(join(root, 'persona.yml'), 'utf8')).toJS()
-  if (personaRow?.name !== PERSONA_PACKAGE) {
-    throw new Error(`gen-preset: persona.yml must declare the ${PERSONA_PACKAGE} row`)
-  }
-  plugins.items[index] = base.createNode(personaRow)
+  plugins.items[index] = base.createNode(personaRow())
 }
 
 /** Point the base skill-filesystem row's `customSkillDirs` at this package's `skills/`. */
@@ -152,16 +195,62 @@ function applySkillDirs(base, plugins) {
   row.setIn(['config', 'customSkillDirs'], dirs)
 }
 
-/** The stage-switch row: the plugin package's config plus this deployment's language. */
+/**
+ * The plugin rows of one child preset: the base rows in {@link CHILD_BASE_ROW_IDS}
+ * order, the agent body as the persona prefix, and that agent's declared delta.
+ * Every row is cloned from a fresh base composition; a missing base row is a
+ * hard error, never a silently thinner child.
+ */
+function childPlugins(agent) {
+  const { base, plugins } = basePlugins()
+  const delta = CHILD_ROW_DELTAS[agent.name] ?? {}
+  const rowIds = [
+    'persona',
+    ...CHILD_BASE_ROW_IDS.slice(0, 3),
+    ...(delta.extraRows ?? []),
+    ...CHILD_BASE_ROW_IDS.slice(3),
+  ]
+  const baseRows = new Map(plugins.items.map(row => [row.get('id'), row]))
+  const missing = rowIds.filter(id => id !== 'persona' && !baseRows.has(id))
+  if (missing.length > 0) {
+    throw new Error(`gen-preset: the base composition is missing child preset rows: ${missing.join(', ')}`)
+  }
+  const child = base.createNode(rowIds.map((id) => {
+    if (id === 'persona') return base.createNode(personaRow(agent.body))
+    // Reuse the parsed node: `!!js` tags on tool-bash/tool-pwsh must survive.
+    return baseRows.get(id)
+  }))
+  applySkillDirs(base, child)
+  for (const [id, config] of Object.entries(delta.rowConfig ?? {})) {
+    const row = child.items.find(entry => entry.get('id') === id)
+    if (row === undefined) throw new Error(`gen-preset: no ${id} row to apply the ${agent.name} delta to`)
+    for (const [key, value] of Object.entries(config)) row.setIn(['config', key], value)
+  }
+  return child
+}
+
+/** Look up this deployment's display label, failing if a new stage has none. */
+function stageAlias(name) {
+  const alias = STAGE_DISPLAY.aliases?.[name]
+  if (typeof alias !== 'string' || alias.trim() === '') {
+    throw new Error(`gen-preset: stage-display.json has no alias for stage ${JSON.stringify(name)}`)
+  }
+  return alias.trim()
+}
+
+/** The stage-switch row: plugin config plus this deployment's display metadata. */
 function stageSwitchRow() {
   return {
     id: 'stage-switch',
     name: STAGE_SWITCH_PACKAGE,
     config: {
-      stages: tavernCardsStageConfig.stages.map(stage => ({ ...stage })),
+      stages: tavernCardsStageConfig.stages.map(stage => ({
+        ...stage,
+        alias: stageAlias(stage.name),
+      })),
       minHandoffTokens: tavernCardsStageConfig.minHandoffTokens,
       section: tavernCardsStageConfig.section,
-      language: STAGE_LANGUAGE,
+      language: STAGE_DISPLAY.language,
     },
   }
 }
@@ -181,22 +270,22 @@ function tavernGroup(agents) {
       {
         id: 'tavern-stages',
         name: TAVERN_STAGES_PACKAGE,
-        // The model-facing tools are the rows below; this row only turns the
-        // named-subagent providers on. Keep `persona` unset everywhere: the
-        // agent body is prepended to the child's first prompt instead.
-        config: { subagents: { enabled: true } },
+        // Stage plugin + project tooling only. Delegation is owned by dsh
+        // 0.2.1: the rows below bind the official `spawn` provider, and each
+        // child gets its persona and tools from its agentPreset preset.
       },
-      // One delegation tool per agents/*.md, generated from the same source the
-      // plugin registers providers from. `agentOptions` stays unset so children
-      // follow the deployment/connection default route and reasoning effort.
+      // One delegation tool per agents/*.md. The agent body travels as the
+      // child preset's persona prefix, never as row `persona`/`toolFilter`
+      // (0.2.1 rejects both). `agentOptions` stays unset so children inherit
+      // the parent session's provider/model route, reasoning effort,
+      // output-token limit, and working directory.
       ...agents.map(agent => ({
         id: `tool-subagent-${agent.name}`,
         name: TOOL_SUBAGENT_PACKAGE,
         config: {
-          provider: `${PROVIDER_PREFIX}:${agent.name}`,
+          provider: 'spawn',
           toolName: agent.name,
-          enableRunInBackground: false,
-          backgroundMode: 'one-shot',
+          agentPreset: childPresetId(agent),
           maxDepth: 'provider-managed',
         },
       })),
@@ -206,21 +295,40 @@ function tavernGroup(agents) {
 
 /** Render the patch document. */
 async function generate() {
+  const agents = await loadTavernAgents()
   const { base, plugins } = basePlugins()
   applyPersonaOverride(base, plugins)
   applySkillDirs(base, plugins)
-  const group = base.createNode(tavernGroup(await loadTavernAgents()))
+  const group = base.createNode(tavernGroup(agents))
   group.commentBefore = [
     ' The tavern group. The stage config is the plugin package\'s `tavernCardsStageConfig`',
     ' plus this deployment\'s `language`; the delegation rows come from `loadTavernAgents()`.',
   ].join('\n')
   group.getIn(['config', 1]).commentBefore = [
-    ' Named-subagent providers only: the model-facing tools are the rows below.',
-    ' Keep `persona` unset — setting it would override the host persona and leak',
-    ' runtime contexts into the child\'s first request; the agent body is',
-    ' prepended to the child\'s first prompt instead.',
+    ' Stage plugin and project tooling only. Delegation is owned by dsh 0.2.1:',
+    ' the rows below bind the official `spawn` provider and select an internal',
+    ' child preset for each agent\'s persona and tool set.',
   ].join('\n')
+  const firstDelegation = group.getIn(['config', 2])
+  if (firstDelegation !== undefined) {
+    firstDelegation.commentBefore = [
+      ' One delegation tool per agents/*.md. The child preset id is a cold-resume',
+      ' contract; never rename or drop a `tavern-child-*` id once shipped.',
+    ].join('\n')
+  }
   plugins.add(group)
+
+  const children = agents.map((agent, index) => ({
+    id: `preset-${childPresetId(agent)}`,
+    name: AGENT_PRESET_PACKAGE,
+    config: {
+      id: childPresetId(agent),
+      name: DISPLAY.childName(agent),
+      description: DISPLAY.childDescription(agent),
+      order: CHILD_PRESET_ORDER + index,
+      plugins: childPlugins(agent),
+    },
+  }))
 
   const doc = new Document([
     {
@@ -236,6 +344,7 @@ async function generate() {
             plugins,
           },
         },
+        ...children,
         // Host-plane activation: see the module comment.
         { id: 'ui-sidebar-stage', name: SIDEBAR_PACKAGE },
       ],

@@ -5,7 +5,7 @@ The tavern content repo for the [tavern-cards](https://github.com/ai4rpg/tavern-
 English | [中文](README.zh.md)
 
 - `tavern-preset/` — `@ai4rpg/dsh-tavern-preset`, the agent preset package: the declared `tavern-standard` preset, the three tavern skills, the persona prose, the host-plane sidebar row. **The install entry point** — see `tavern-preset/docs/install-guide.md`.
-- `tavern-agents/` — `@ai4rpg/tavern-agents`, the four named-subagent personas (CC BY-NC-SA), carried into the profile by the preset package's `file:` dependency.
+- `tavern-agents/` — `@ai4rpg/tavern-agents`, the four named-subagent personas (CC BY-NC-SA); a generator-time devDependency of the preset package, with the bodies embedded into the generated patch rather than installed into the profile.
 
 ## Install
 

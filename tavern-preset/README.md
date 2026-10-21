@@ -6,13 +6,14 @@ English | [中文](README.zh.md)
 
 Installing this package is the normal way to get the tavern workflow: it declares one preset, `tavern-standard`, that composes
 
-- [`@ai4rpg/dsh-tavern-stages`](https://www.npmjs.com/package/@ai4rpg/dsh-tavern-stages) — the stage config, the project-workspace tooling (`tavern_forge`, focus tracking, the completion predicate), and the four named-subagent providers;
+- [`@ai4rpg/dsh-tavern-stages`](https://www.npmjs.com/package/@ai4rpg/dsh-tavern-stages) — the stage config, the project-workspace tooling (`tavern_forge`, focus tracking, the completion predicate), and the generator-time persona loader that feeds the four delegation rows and their child presets;
 - [`@ai4rpg/dsh-stage-switch`](https://www.npmjs.com/package/@ai4rpg/dsh-stage-switch) — the stage machine those stages run on;
 - the three tavern skills `tavern-design`, `tavern-cards`, `tavern-ui` — shipped in this package's `skills/` directory (CC BY-NC-SA, see [License](#license));
 - a writing-oriented persona prose override;
+- four internal child presets `tavern-child-*` — one per delegation agent, each carrying that agent's persona and a narrow tool set;
 - [`@ai4rpg/dsh-ui-sidebar-stage`](https://www.npmjs.com/package/@ai4rpg/dsh-ui-sidebar-stage) — the stage tab in the right sidebar (a host-plane row, not a preset row).
 
-Tavern context is **per-session**: it loads only in sessions started on this preset, so sessions on any other preset stay tavern-free (free of the stage instruction, the `goto_stage`/`tavern_forge` tools, and the tavern skills). Preset selection comes with DSH's web UI.
+Tavern context is **per-session**: the full workflow loads only in sessions started on this preset; sessions on other presets do not get the stage instruction or the `goto_stage`/`tavern_forge` tools. The internal `tavern-child-*` presets are for delegation only — they carry a child's persona, narrow tools, and the skills that child needs, but not the stage or forge surface. Preset selection comes with DSH's web UI.
 
 ## Install
 
@@ -28,15 +29,20 @@ The official desktop client (Electron) uses its own `desktop` profile, which a s
 
 ## What the preset contains
 
-The patch inserts a declaration whose `plugins` list **is** the official `standard` composition with exactly three edits, so upgrading the base moves the preset with it:
+The patch inserts a declaration whose `plugins` list **is** the official `standard` composition with exactly these edits, so upgrading the base moves the preset with it:
 
 | Edit | What it does |
 |---|---|
-| Persona row replaced with `persona.yml` | Writing-oriented prose only; the mechanism stays the base's (the template leaves `complete` and `includeRuntimeContext` unset), so plan-mode sections and runtime contexts still render and children inherit the full host prompt. |
+| Persona row replaced with `persona.yml` | Writing-oriented prose only; the mechanism stays the base's (the template leaves `complete` and `includeRuntimeContext` unset), so plan-mode sections and runtime contexts still render. |
 | `skill-filesystem` row gains `customSkillDirs` | A `!!js` expression resolved against the loader's `baseUrl` points at this package's own `skills/` directory, so the official skill catalog exposes the three tavern skills. |
-| The `tavern` group is appended | One `cordis:group` with `isolate: { stage: true }` (the stage service must not leak into the root realm): the stage-switch row (config = the plugin package's `tavernCardsStageConfig` + `language: zh`), the tavern-stages row (`subagents.enabled: true`), and one `tool-subagent-*` row per `agents/*.md` of the plugin. |
+| The `tavern` group is appended | One `cordis:group` with `isolate: { stage: true }` (the stage service must not leak into the root realm): the stage-switch row (config = the plugin package's `tavernCardsStageConfig` + `language: zh`), the tavern-stages row, and one `tool-subagent-*` row per `agents/*.md`. |
+| Four `tavern-child-*` presets are appended | Each delegation row selects one through `agentPreset`; the child preset's persona is the agent body and its plugin list is the agent's narrow tool set (no stage, delegation, or planning rows). |
 
-The group's delegation rows are generated from the plugin's `loadTavernAgents()`, so the tools and the providers they bind to cannot drift. `persona` stays unset on those rows: the agent body is prepended to the child's first prompt, and a persona section would override the host persona.
+The group's delegation rows are generated from the plugin's `loadTavernAgents()`, so the tools and the personas cannot drift. Every row binds the official `spawn` provider (`provider: spawn`) and names its child preset (`agentPreset: tavern-child-<agent>`); `persona` and `toolFilter` stay off the row, because 0.2.1 rejects both — identity and tools live in the child preset.
+
+**The four `Tavern child · *` presets are internal.** They appear in the preset roster because the host has no hidden flag, but they exist only so the delegation rows can compose a child; do not select one for a user session. The `check-agent` child is read-only (`tool-fs` with `write` and `edit` off); only the `conversion-agent` child has shell tools (`bash` / `pwsh`) for its validation script.
+
+**Delegation is asynchronous.** A delegation tool returns `{ kind: 'activation', subagentId }` immediately; the child's final answer arrives later as the parent's completion notification. Steps that depend on the result wait for that notification instead of reading the tool's return value. Child presets carry the `skill` tool, so a child that needs the tavern reference documents loads them on demand; the returned `resourceBase.path` is the directory base for `references/`.
 
 The patch also activates the stage sidebar tab on the host plane. The tab cannot ride the preset: the browser module roster only scans the main Loader tree, and preset rows live in a separate tree. It is passive UI (no prompt section, no tool).
 
@@ -46,16 +52,15 @@ The patch also activates the stage sidebar tab on the host plane. The tab cannot
 
 ### Per-tool model & reasoning effort
 
-The four delegation tools inherit the session's model route and (by default) its connection-level reasoning effort; the generated rows leave `agentOptions` **unset**, because different models accept different effort values and forcing `max` can error on some. Route, effort, and `maxTokens` are native `AgentOptions` on each `tool-subagent-*` row. To pin a per-tool model or force an effort, edit the row in the patch you deploy (the installed `cordis.patch.yml`, or a patch layer of your own):
+The four delegation tools inherit the parent session's model route and, unless overridden, its reasoning effort; the generated rows leave `agentOptions` **unset**, because different models accept different effort values and forcing `max` can error on some. Route, effort, and `maxTokens` are native `AgentOptions` on each `tool-subagent-*` row. To pin a per-tool model or force an effort, edit the row in the patch you deploy (the installed `cordis.patch.yml`, or a patch layer of your own):
 
 ```yaml
     - id: tool-subagent-check-agent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
-        provider: tavern:check-agent
+        provider: spawn
         toolName: check-agent
-        enableRunInBackground: false
-        backgroundMode: one-shot
+        agentPreset: tavern-child-check-agent
         maxDepth: provider-managed
         agentOptions:
           model: deepseek-chat          # per-tool model route (optional)
@@ -63,15 +68,15 @@ The four delegation tools inherit the session's model route and (by default) its
           # maxTokens: 8192             # (optional)
 ```
 
-A preset is a snapshot: reinstalling or regenerating (`npm run gen`) restores the shipped rows; keep lasting edits in your own patch layer.
+Change `agentPreset` to swap the child's persona and tool surface; the id is a resume contract, so keep the shipped `tavern-child-*` ids unless you own the sessions that record them. A preset is a snapshot: reinstalling or regenerating (`npm run gen`) restores the shipped rows; keep lasting edits in your own patch layer.
 
 ### Disabling the subagent tools
 
-Set `subagents.enabled: false` on the `@ai4rpg/dsh-tavern-stages` row to keep the four providers from registering. The stage and forge features are unaffected.
+Remove or disable the four `tool-subagent-*` rows in the declared `tavern` group. The plugin has no runtime on/off switch, and the stage and forge features are unaffected; the four child presets can stay declared — the parent session does not bind them, and a delegation child uses the one its row selected.
 
 ## Requirements
 
-- dsh `0.2.0-rc.2` line (`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` for the Web profile).
+- dsh `0.2.1-rc.2` line (`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` for the Web profile); the package declares this through `engines.dsh` (`>=0.2.1-rc.2 <0.3.0-0`).
 - Node `^22.19 || >=24` (the `!!js` skill-dir expression uses `process.getBuiltinModule`).
 
 ## Develop
@@ -86,11 +91,12 @@ npm run typecheck
 |---|---|
 | `cordis.patch.yml` | **Generated, committed.** `tests/preset.spec.ts` fails when it drifts from `scripts/gen-preset.mjs`. |
 | `persona.yml` | The preset's persona row — the single editable source for that prose. |
+| `stage-display.json` | Chinese stage aliases and the stage-switch review language; consumed by `gen-preset.mjs`. |
 | `skills/` | The three skill bodies as the DSH edition (each forge invocation written as a `tavern_forge({ command, args })` call). Synced from upstream by `scripts/sync-skills.mjs`. |
-| `scripts/gen-preset.mjs` | The derived generator (base patch + persona + plugin exports). |
+| `scripts/gen-preset.mjs` | The derived generator (base patch + persona + plugin exports + stage display). |
 | `scripts/sync-skills.mjs` | Upstream skill sync (`TAVERN_CARDS_ROOT` must point at a [tavern-cards](https://github.com/ai4rpg/tavern-cards) checkout). |
 
-`@ai4rpg/dsh-tavern-stages` ships on npm; plain `npm install` resolves it from the registry. To test local plugin changes, link a local checkout instead: `npm install --no-save <path to your tavern-stages checkout>`; a directory install keeps the plugin resolving its `@deepseek-ai/*` tree from its own `node_modules`. The personas need no linking: this package depends on the sibling `@ai4rpg/tavern-agents` folder directly (`file:../tavern-agents`).
+`@ai4rpg/dsh-tavern-stages` ships on npm; plain `npm install` resolves it from the registry. To test local plugin changes, link a local checkout instead: `npm install --no-save <path to your tavern-stages checkout>`; a directory install keeps the plugin resolving its `@deepseek-ai/*` tree from its own `node_modules`. A linked plugin resolves the agents package from that checkout too, so run `TAVERN_AGENTS_ROOT=\"$PWD/../tavern-agents\" npm run gen` when generating from a linked plugin; otherwise `loadTavernAgents()` degrades to `[]` and omits the child presets. The agents source is a devDependency of this checkout (`file:../tavern-agents`) used by `npm run gen`; the installed preset does not load it — the generated child presets embed the four persona bodies.
 
 ## License
 

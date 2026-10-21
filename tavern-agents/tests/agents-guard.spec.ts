@@ -13,13 +13,13 @@ describe('tavern agents content package', () => {
     expect(violations).toEqual([])
   })
 
-  it('keeps the layout the plugin resolver depends on', async () => {
-    // @ai4rpg/dsh-tavern-stages resolves this package's package.json through
-    // its own dependency graph and reads `<package>/agents/*.md`, registering
-    // one `tavern:<name>` provider per persona (LICENSE.md is skipped by
-    // name). The four current personas are the ones the tavern preset's
-    // tool-subagent rows bind to: adding a persona is fine, removing or
-    // renaming one is not — it would leave those rows dangling.
+  it('keeps the layout the preset generator depends on', async () => {
+    // The tavern-preset generator resolves this package's package.json through
+    // `loadTavernAgents()` and reads `<package>/agents/*.md` (LICENSE.md is
+    // skipped by name), embedding one persona per child preset. The four
+    // current personas are the ones the generated `tool-subagent-*` rows bind
+    // to: adding a persona is fine, removing or renaming one is not — it would
+    // leave those rows dangling and orphan recorded child-session ids.
     const packageJson = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8')) as { name: string }
     expect(packageJson.name).toBe('@ai4rpg/tavern-agents')
 

@@ -5,12 +5,18 @@
 // instruction, the tavern tool surface — plus the skill catalog the
 // `skill-filesystem` row's `!!js` expression resolves.
 //
+// The delegation e2e below starts a child through the official `spawn` provider
+// with the same `agentPreset` binding the tool rows use, then reads the child's
+// first request: its system prompt is the agent body and its tool catalog is the
+// child preset's reduced set.
+//
 // Deliberately NOT asserted here: the standard toolset rows (bash, fs, jobs,
 // plan mode, compaction, …). They are the official base composition; their
 // wiring is pinned statically by `tests/preset.spec.ts`, and booting that
 // whole stack is not this host plane's job (the harness mounts only
-// `MOUNTED_ROW_IDS`).
+// `MOUNTED_ROW_IDS` and `CHILD_MOUNTED_ROW_IDS`).
 import { afterEach, describe, expect, it } from 'vitest'
+import { loadTavernAgents } from '@ai4rpg/dsh-tavern-stages'
 import {
   DELEGATION_TOOLS,
   PRESET_ID,
@@ -20,8 +26,9 @@ import {
   requestTools,
   runTurn,
   startAgent,
+  startChildActivation,
   textResponse,
-  waitForTavernProviders,
+  waitForSpawnProvider,
   type Composition,
 } from './helpers/composition.ts'
 
@@ -31,41 +38,57 @@ afterEach(async () => {
   for (const composition of compositions.splice(0).reverse()) await composition.dispose()
 })
 
+/** Start one child and return the model request it produced. */
+async function childRequest(
+  composition: Composition,
+  presetId: string,
+  prompt = 'Run your task.',
+) {
+  composition.adapter.respond(textResponse('done'))
+  const { agent } = await startAgent(composition.ctx, `parent-${presetId}`, composition.root)
+  const activation = await startChildActivation(composition.ctx, agent, presetId, prompt)
+  await activation.result
+  return composition.adapter.requests.at(-1)!
+}
+
 describe('tavern-standard through the real loader', () => {
-  it('mounts on the declared preset id and registers the four tavern providers', { timeout: 60_000 }, async () => {
+  it('mounts on the declared preset id and exposes the official spawn provider', { timeout: 60_000 }, async () => {
     const composition = await loadComposition()
     compositions.push(composition)
     const { presetId } = await startAgent(composition.ctx, 'providers', composition.root)
 
     // The resume contract: the mounted preset id is the declared one.
     expect(presetId).toBe(PRESET_ID)
-    // The tavern-stages row registered one provider per agent, asynchronously
-    // inside the preset mount — the delegation tools bind to these names.
-    const providers = await waitForTavernProviders(composition.ctx)
-    expect(providers).toEqual(DELEGATION_TOOLS.map(name => `tavern:${name}`))
+    // dsh 0.2.1 owns delegation: every tavern row binds this one provider.
+    expect(await waitForSpawnProvider(composition.ctx)).toBe('spawn')
   })
 
   it('injects the persona prose and the route stage instruction into the first request, with the full tavern tool surface', { timeout: 60_000 }, async () => {
     const composition = await loadComposition()
     compositions.push(composition)
     const { agent } = await startAgent(composition.ctx, 'first-request', composition.root)
-    await waitForTavernProviders(composition.ctx)
+    await waitForSpawnProvider(composition.ctx)
 
     composition.adapter.respond(textResponse('acknowledged'))
     await runTurn(composition.ctx, agent, 'Hello')
 
     const request = composition.adapter.requests.at(-1)!
     const text = requestText(request)
-    // The persona row is the shipped prose override (not the official base).
+    // The persona row is the shipped prose override (not the official base)
+    // and carries no `{{cwd}}` suffix: 0.2.1 interpolates strictly.
     expect(text).toContain('SillyTavern character cards')
+    expect(text).not.toContain('Your working directory is')
     // A fresh session opens in route; stage-switch injected its instruction.
     const config = mountedStageConfig(composition)
     expect(config.language).toBe('zh')
     const route = config.stages.find(stage => stage.name === 'route')
     expect(route).toBeDefined()
+    // The patch carries the localized display alias without changing the
+    // durable stage name the switch records.
+    expect(route!.alias).toBe('路由')
     expect(text).toContain(route!.instruction.slice(0, 40))
     // The tavern surface: the stage machine's jump tool, the forge tool, and
-    // the four named delegation tools — all model-visible on turn one.
+    // the four delegation tools — all model-visible on turn one.
     const tools = requestTools(request)
     expect(tools).toContain('goto_stage')
     expect(tools).toContain('tavern_forge')
@@ -101,6 +124,55 @@ describe('tavern-standard through the real loader', () => {
       }
     } finally {
       await lease[Symbol.asyncDispose]()
+    }
+  })
+})
+
+describe('tavern child presets through delegation', () => {
+  it('runs check-agent with its own body and a read-only tool surface', { timeout: 60_000 }, async () => {
+    const composition = await loadComposition()
+    compositions.push(composition)
+    const request = await childRequest(composition, 'tavern-child-check-agent', 'Review the entry.')
+
+    const text = requestText(request)
+    // The persona prefix is the agent body from loadTavernAgents().
+    const checkAgent = (await loadTavernAgents()).find(agent => agent.name === 'check-agent')!
+    expect(text).toContain(checkAgent.body)
+    expect(text).toContain('# check-agent')
+    expect(text).toContain('**审稿师**')
+
+    const tools = requestTools(request)
+    for (const tool of ['read', 'glob', 'grep', 'skill']) expect(tools).toContain(tool)
+    // The reviewer reports; it never edits, runs commands, or sees the parent's
+    // stage/delegation surface.
+    for (const tool of ['write', 'edit', 'bash', 'pwsh', 'goto_stage', 'tavern_forge']) {
+      expect(tools, tool).not.toContain(tool)
+    }
+  })
+
+  it('gives conversion-agent shell access and keeps the other two children narrow', { timeout: 60_000 }, async () => {
+    const composition = await loadComposition()
+    compositions.push(composition)
+
+    const conversion = await childRequest(composition, 'tavern-child-conversion-agent')
+    const conversionText = requestText(conversion)
+    expect(conversionText).toContain('# conversion-agent')
+    const conversionTools = requestTools(conversion)
+    // tool-bash is platform-gated: bash on POSIX, pwsh on Windows.
+    expect(conversionTools.includes('bash') || conversionTools.includes('pwsh')).toBe(true)
+
+    for (const [presetId, marker] of [
+      ['tavern-child-schema-agent', '# schema-agent'],
+      ['tavern-child-first-message-agent', '# first-message-agent'],
+    ] as const) {
+      const request = await childRequest(composition, presetId)
+      expect(requestText(request)).toContain(marker)
+      const tools = requestTools(request)
+      expect(tools, presetId).toContain('read')
+      expect(tools, presetId).not.toContain('goto_stage')
+      expect(tools, presetId).not.toContain('tavern_forge')
+      expect(tools, presetId).not.toContain('bash')
+      expect(tools, presetId).not.toContain('pwsh')
     }
   })
 })

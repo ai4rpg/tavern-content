@@ -5,7 +5,7 @@
 [English](README.md) | 中文
 
 - `tavern-preset/` —— `@ai4rpg/dsh-tavern-preset`，agent 预设包：声明式 `tavern-standard` 预设、三个 tavern 技能、persona 散文、宿主平面侧边栏行。**安装入口**——见 [`tavern-preset/docs/install-guide.zh.md`](tavern-preset/docs/install-guide.zh.md)。
-- `tavern-agents/` —— `@ai4rpg/tavern-agents`，四个具名子代理人格（CC BY-NC-SA），经预设包的 `file:` 依赖带进 profile。
+- `tavern-agents/` —— `@ai4rpg/tavern-agents`，四个具名子代理人格（CC BY-NC-SA）；作为预设包的生成期 devDependency，其正文被内嵌进生成补丁，而不是装进 profile。
 
 ## 安装
 

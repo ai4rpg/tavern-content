@@ -6,12 +6,13 @@ upstream [ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards).
 
 English | [中文](README.zh.md)
 
-`@ai4rpg/dsh-tavern-stages` resolves this package through its own dependency
-graph, reads `agents/*.md`, and registers one `tavern:<name>` subagent
-provider per persona (the frontmatter `description` becomes the bound tool's
-description). The preset package's generator declares one `tool-subagent` row
-per persona from the same source, so the tool rows and the registered
-providers cannot drift.
+`@ai4rpg/dsh-tavern-stages` exposes the `loadTavernAgents()` loader this
+package was built for. The preset generator consumes it at development time:
+it reads `agents/*.md` and embeds each persona's body and frontmatter
+`description` into a `tavern-child-*` preset in `cordis.patch.yml`. The
+installed preset does not load this package at runtime; the generated patch is
+the runtime copy. The package is a generator-time devDependency of the preset
+package, not a runtime dependency.
 
 ## Layout contract
 
@@ -27,14 +28,15 @@ providers cannot drift.
   (`TAVERN_CARDS_ROOT` must point at your [tavern-cards](https://github.com/ai4rpg/tavern-cards) checkout; there is no default),
   then validate the frontmatter/body contract.
 - `npm test` — the same contract plus the layout guard (the four current
-  personas exist; the package name the plugin resolves by is unchanged).
+  personas exist; the package name the generator resolves by is unchanged).
 
 ## Adding, renaming, removing personas
 
-Adding a persona is safe: the plugin registers an extra provider with no
-bound tool row. Renaming or removing one is a breaking change, because the preset's
-`tool-subagent-*` rows bind by name and would dangle. Coordinate such changes
-with a preset regeneration.
+Adding a persona is safe for the source package, but the generated preset only
+gains a delegation row and child preset after `npm run gen`. Renaming or
+removing one is a breaking change, because the existing `tavern-child-*` ids
+are recorded by sessions and the `tool-subagent-*` rows bind by name. Coordinate
+such changes with a preset regeneration and keep the ids stable for old sessions.
 
 ## License
 

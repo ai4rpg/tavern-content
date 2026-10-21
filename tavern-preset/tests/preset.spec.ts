@@ -21,6 +21,11 @@ import { loadTavernAgents, tavernCardsStageConfig } from '@ai4rpg/dsh-tavern-sta
 const require = createRequire(import.meta.url)
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const patchPath = join(repoRoot, 'cordis.patch.yml')
+/** The content-owned Chinese display metadata the generator injects. */
+const stageDisplay = JSON.parse(readFileSync(join(repoRoot, 'stage-display.json'), 'utf8')) as {
+  language: string
+  aliases: Record<string, string>
+}
 
 /** Rows of the generated patch, with `!!js` expressions kept verbatim. */
 type Row = {
@@ -61,6 +66,7 @@ function basePlugins(): Row[] {
 const patch = readPatch()
 const declaration = byId(patch.insert, 'preset-tavern-standard')
 const plugins = pluginsOf(declaration)
+const agentsPromise = loadTavernAgents()
 
 describe('generated patch', () => {
   it('is byte-identical to a fresh generator run', () => {
@@ -76,8 +82,15 @@ describe('generated patch', () => {
     }
   })
 
-  it('inserts the preset declaration and the host-plane sidebar tab', () => {
-    expect(patch.insert.map(row => row.id)).toEqual(['preset-tavern-standard', 'ui-sidebar-stage'])
+  it('inserts the preset declaration, its four child presets, and the host-plane sidebar tab', () => {
+    expect(patch.insert.map(row => row.id)).toEqual([
+      'preset-tavern-standard',
+      'preset-tavern-child-check-agent',
+      'preset-tavern-child-conversion-agent',
+      'preset-tavern-child-first-message-agent',
+      'preset-tavern-child-schema-agent',
+      'ui-sidebar-stage',
+    ])
     expect(byId(patch.insert, 'ui-sidebar-stage').name).toBe('@ai4rpg/dsh-ui-sidebar-stage')
   })
 
@@ -138,20 +151,26 @@ describe('tavern group', () => {
     const stageSwitch = byId(children, 'stage-switch')
     expect(stageSwitch.name).toBe('@ai4rpg/dsh-stage-switch')
     expect(stageSwitch.config).toEqual({
-      stages: tavernCardsStageConfig.stages.map(stage => ({ ...stage })),
+      stages: tavernCardsStageConfig.stages.map(stage => ({
+        ...stage,
+        alias: stageDisplay.aliases[stage.name],
+      })),
       minHandoffTokens: tavernCardsStageConfig.minHandoffTokens,
       section: tavernCardsStageConfig.section,
-      language: 'zh',
+      language: stageDisplay.language,
     })
+    expect((stageSwitch.config as { stages: Array<{ alias?: string }> }).stages
+      .map(stage => stage.alias))
+      .toEqual(['路由', '设计', '规划', '内容', '界面'])
   })
 
-  it('enables the named-subagent providers without a persona override', () => {
+  it('leaves delegation entirely to dsh: no subagent configuration on the tavern-stages row', () => {
     const row = byId(children, 'tavern-stages')
     expect(row.name).toBe('@ai4rpg/dsh-tavern-stages')
-    expect(row.config).toEqual({ subagents: { enabled: true } })
+    expect(row.config).toBeUndefined()
   })
 
-  it('generates one delegation tool per agents/*.md, from the same export the providers register from', async () => {
+  it('generates one spawn delegation tool per agents/*.md, each selecting its child preset', async () => {
     const agents = await loadTavernAgents()
     expect(agents.map(agent => agent.name)).toEqual([
       'check-agent',
@@ -166,18 +185,119 @@ describe('tavern group', () => {
         id: `tool-subagent-${agent.name}`,
         name: '@deepseek-ai/dsh-tool-subagent',
         config: {
-          provider: `tavern:${agent.name}`,
+          provider: 'spawn',
           toolName: agent.name,
-          enableRunInBackground: false,
-          backgroundMode: 'one-shot',
+          agentPreset: `tavern-child-${agent.name}`,
           maxDepth: 'provider-managed',
         },
       })
+      // 0.2.1 rejects `persona`/`toolFilter` at mount and silently ignores the
+      // two background keys; identity and tools belong to the child preset.
+      for (const dead of ['persona', 'toolFilter', 'enableRunInBackground', 'backgroundMode']) {
+        expect(toolRows[index]!.config).not.toHaveProperty(dead)
+      }
     }
-    // The model-facing tools are the rows; the provider row must not carry a
-    // `persona` of its own — the agent body is prepended to the child's first
-    // prompt instead of overriding the host persona.
-    expect(byId(children, 'tavern-stages').config).not.toHaveProperty('persona')
+  })
+})
+
+describe('child presets', () => {
+  const childOrder = [
+    'persona',
+    'agent-instructions',
+    'tool-fs',
+    'tool-fs-search',
+    'skill-filesystem',
+    'tool-skill',
+    'compaction',
+  ]
+
+  it('declares one internal child preset per agent, ordered after the main preset', async () => {
+    const agents = await agentsPromise
+    for (const [index, agent] of agents.entries()) {
+      const id = `tavern-child-${agent.name}`
+      const declaration = byId(patch.insert, `preset-${id}`)
+      expect(declaration.name).toBe('@deepseek-ai/dsh-agent-preset')
+      expect(declaration.config!.id).toBe(id)
+      expect(declaration.config!.order).toBe(6 + index)
+      // The roster has no hidden flag: the name and description must say what
+      // this preset is for and that user sessions should not select it.
+      expect(declaration.config!.name).toBe(`Tavern child · ${agent.name}`)
+      expect(String(declaration.config!.description)).toContain(agent.name)
+      expect(String(declaration.config!.description)).toContain('不作为用户会话预设选用')
+      expect(String(declaration.config!.description)).toContain(agent.description)
+    }
+    expect(new Set(patch.insert
+      .filter(row => row.id?.startsWith('preset-tavern-child-'))
+      .map(row => row.config!.id))).toEqual(new Set(agents.map(agent => `tavern-child-${agent.name}`)))
+  })
+
+  it('carries the agent body as the persona prefix and only its declared tool rows', async () => {
+    const agents = await agentsPromise
+    const base = basePlugins()
+    const baseById = new Map(base.map(row => [row.id, row]))
+    for (const agent of agents) {
+      const declaration = byId(patch.insert, `preset-tavern-child-${agent.name}`)
+      const rows = pluginsOf(declaration)
+      const extra = agent.name === 'conversion-agent' ? ['tool-bash', 'tool-pwsh'] : []
+      expect(rows.map(row => row.id)).toEqual([
+        'persona',
+        'agent-instructions',
+        'tool-fs',
+        'tool-fs-search',
+        ...extra,
+        'skill-filesystem',
+        'tool-skill',
+        'compaction',
+      ])
+
+      expect(byId(rows, 'persona')).toEqual({
+        id: 'persona',
+        name: '@deepseek-ai/dsh-persona',
+        config: { prefix: agent.body },
+      })
+
+      for (const id of childOrder.filter(id => id !== 'persona')) {
+        const generated = byId(rows, id)
+        const expected = structuredClone(baseById.get(id)!)
+        if (id === 'skill-filesystem') {
+          expected.config = {
+            ...expected.config,
+            customSkillDirs: [
+              "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@ai4rpg/dsh-tavern-preset/package.json')), 'skills')",
+            ],
+          }
+        }
+        if (id === 'tool-fs' && agent.name === 'check-agent') {
+          expected.config = { write: false, edit: false }
+        }
+        expect(generated, `${agent.name} row ${id}`).toEqual(expected)
+      }
+    }
+  })
+
+  it('keeps stage, delegation, and planning out of every child, and bash only in conversion', async () => {
+    const agents = await agentsPromise
+    for (const agent of agents) {
+      const rows = pluginsOf(byId(patch.insert, `preset-tavern-child-${agent.name}`))
+      const ids = rows.map(row => String(row.id))
+      expect(ids.some(id => id.startsWith('tool-subagent')), agent.name).toBe(false)
+      expect(ids, agent.name).not.toContain('delegation')
+      expect(ids, agent.name).not.toContain('planning')
+      expect(ids, agent.name).not.toContain('stage-switch')
+      expect(ids, agent.name).not.toContain('tavern')
+      expect(ids.includes('tool-bash'), agent.name).toBe(agent.name === 'conversion-agent')
+      expect(ids.includes('tool-pwsh'), agent.name).toBe(agent.name === 'conversion-agent')
+    }
+  })
+
+  it('uses the child-preset ids as the delegation binding, one-to-one with agents', () => {
+    const ids = new Set(patch.insert
+      .filter(row => row.id?.startsWith('preset-tavern-child-'))
+      .map(row => String(row.config!.id)))
+    const groupRows = byId(plugins, 'tavern').config as unknown as Row[]
+    for (const row of groupRows.filter(entry => entry.id?.startsWith('tool-subagent-'))) {
+      expect(ids.has(String((row.config as { agentPreset?: string }).agentPreset))).toBe(true)
+    }
   })
 })
 
@@ -200,6 +320,7 @@ describe('package metadata', () => {
   const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
     dependencies: Record<string, string>
     devDependencies: Record<string, string>
+    engines: { dsh?: string, node?: string }
     files: string[]
     license: string
     publishConfig?: { access: string }
@@ -211,14 +332,15 @@ describe('package metadata', () => {
     expect(pkg.publishConfig, 'this package is a local checkout, never published to npm').toBeUndefined()
     expect(pkg.files).toContain('cordis.patch.yml')
     expect(pkg.files).toContain('skills')
+    expect(pkg.files).toContain('stage-display.json')
   })
 
   it('depends on the composed packages as registry ranges', () => {
-    // Ranges only, with one deliberate exception: the personas ride the
-    // self-contained content repo — @ai4rpg/tavern-agents is pinned to its
-    // sibling checkout, which ships in the same download, so the relative
-    // `file:` spec stays portable. Any other `file:`/`link:`/`portal:` spec
-    // would point outside the repo and break on another machine.
+    // Ranges only, with one deliberate exception: @ai4rpg/tavern-agents is a
+    // generator-time devDependency pinned to its sibling checkout, which
+    // ships in the same download, so the relative `file:` spec stays
+    // portable. Any other `file:`/`link:`/`portal:` spec would point outside
+    // the repo and break on another machine.
     for (const [name, spec] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) {
       if (name === '@ai4rpg/tavern-agents') {
         expect(spec, name).toBe('file:../tavern-agents')
@@ -227,10 +349,19 @@ describe('package metadata', () => {
       expect(spec, name).not.toMatch(/^(file|link|portal):/)
       expect(spec, name).toMatch(/^\^?\d+\.\d+\.\d+/)
     }
-    expect(pkg.dependencies['@ai4rpg/dsh-tavern-stages']).toMatch(/^\^0\.1\./)
+    expect(pkg.dependencies['@ai4rpg/dsh-tavern-stages']).toMatch(/^\^0\.2\./)
     expect(pkg.dependencies['@ai4rpg/dsh-stage-switch']).toMatch(/^\^0\.2\./)
-    expect(pkg.dependencies['@ai4rpg/dsh-ui-sidebar-stage']).toMatch(/^\^0\.1\./)
-    expect(pkg.dependencies['@ai4rpg/tavern-agents']).toBe('file:../tavern-agents')
+    expect(pkg.dependencies['@ai4rpg/dsh-ui-sidebar-stage']).toMatch(/^\^0\.2\./)
+    expect(pkg.dependencies).not.toHaveProperty('@ai4rpg/tavern-agents')
+    expect(pkg.devDependencies['@ai4rpg/tavern-agents']).toBe('file:../tavern-agents')
+  })
+
+  it('targets the dsh 0.2.1 line through engines.dsh', () => {
+    expect(pkg.engines.dsh).toBe('>=0.2.1-rc.2 <0.3.0-0')
+    for (const [name, spec] of Object.entries(pkg.devDependencies)) {
+      if (name.startsWith('@deepseek-ai/dsh-')) expect(spec, name).toBe('^0.2.1-rc.2')
+    }
+    expect(pkg.devDependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-in-process-driver')
   })
 
   it('licenses the code as MIT with the CC BY-NC-SA skill scope spelled out', () => {

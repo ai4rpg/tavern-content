@@ -55,13 +55,22 @@ import * as Persona from '@deepseek-ai/dsh-persona'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjection from '@deepseek-ai/dsh-session-projection'
+import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
+import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import * as SpawnInProcess from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
+import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import StageController from '@ai4rpg/dsh-stage-switch'
 import * as TavernStages from '@ai4rpg/dsh-tavern-stages'
 
@@ -77,6 +86,17 @@ export const PRESET_ROW_ID = 'preset-tavern-standard'
 /** The declared plugin rows whose runtime behaviour this host plane supports. */
 export const MOUNTED_ROW_IDS = ['persona', 'skill-filesystem', 'tavern'] as const
 
+/**
+ * The child-preset rows this host plane mounts. The child declarations also
+ * carry `agent-instructions` and the compaction group; those add no tool and
+ * need services outside this harness, so they stay statically pinned by
+ * `tests/preset.spec.ts` (a reduced row set, same tradeoff as
+ * {@link MOUNTED_ROW_IDS}).
+ */
+export const CHILD_MOUNTED_ROW_IDS = [
+  'persona', 'tool-fs', 'tool-fs-search', 'skill-filesystem', 'tool-skill', 'tool-bash',
+] as const
+
 /** The tavern group's row id, the subtree carrying the stage machine. */
 export const TAVERN_ROW_ID = 'tavern'
 
@@ -87,6 +107,51 @@ export const DELEGATION_TOOLS = [
 
 /** Specifier of the in-memory `dsh-fs` backend this harness composes. */
 const MEMORY_FS = 'test:memory-fs'
+
+/** Specifier of the inert `subprocess` seam stub (search tools mount, never run). */
+const TEST_SUBPROCESS = 'test:subprocess'
+
+/** Specifier of the inert `shell` seam stub (bash mounts, never runs). */
+const TEST_SHELL = 'test:shell'
+
+/**
+ * The `subprocess` seam, present only so `tool-fs-search` can register its
+ * `glob`/`grep` tools. This suite never executes a search.
+ */
+class TestSubprocess extends SubprocessRuntime {
+  override async resolveExecutable(): Promise<never> {
+    throw new Error('the composition harness never runs a subprocess')
+  }
+
+  override async terminalEnvironment(): Promise<{ platform: 'posix' | 'windows', defaultShell: string }> {
+    return {
+      platform: process.platform === 'win32' ? 'windows' : 'posix',
+      defaultShell: process.platform === 'win32' ? 'pwsh' : 'bash',
+    }
+  }
+
+  override spawn(): never {
+    throw new Error('the composition harness never runs a subprocess')
+  }
+
+  override async spawnTerminal(): Promise<never> {
+    throw new Error('the composition harness never runs a subprocess')
+  }
+}
+
+/**
+ * The `shell` seam, present only so `tool-bash` can register its tool. This
+ * suite asserts the tool catalog, not command execution.
+ */
+class TestShell extends ShellExecutor {
+  override resolve(): never {
+    throw new Error('the composition harness never runs a shell command')
+  }
+
+  override async execute(): Promise<never> {
+    throw new Error('the composition harness never runs a shell command')
+  }
+}
 
 /** A Loader entry row as `cordis.patch.yml` writes it. */
 export interface Row {
@@ -139,21 +204,53 @@ export interface PatchDeclaration {
 }
 
 /**
+ * Read every row the generated patch inserts: the main declaration, the four
+ * child declarations, and the host-plane sidebar row. The file is parsed,
+ * never pattern-matched: reductions below have to move real YAML nodes
+ * (including tagged `!!js` scalars) around, and a text-level edit would quietly
+ * drop the tag.
+ * @returns all inserted rows, in patch order.
+ */
+export function readPatchInsertions(): Row[] {
+  const patch = parse(readFileSync(join(repoRoot, 'cordis.patch.yml'), 'utf8'), { customTags: [JS_TAG] }) as Row[]
+  return (patch[0]?.insert ?? []) as Row[]
+}
+
+/**
  * Read the generated patch's `preset-tavern-standard` declaration.
- *
- * The file is parsed, never pattern-matched: the reduction below has to move
- * real YAML nodes (including tagged `!!js` scalars) around, and a text-level
- * edit would quietly drop the tag.
  * @returns the declaration row plus its declared child plugin rows.
  */
 export function readPatchDeclaration(): PatchDeclaration {
-  const patch = parse(readFileSync(join(repoRoot, 'cordis.patch.yml'), 'utf8'), { customTags: [JS_TAG] }) as Row[]
-  const inserted = (patch[0]?.insert ?? []) as Row[]
+  const inserted = readPatchInsertions()
   const row = inserted.find(candidate => candidate.id === PRESET_ROW_ID)
   if (row === undefined) throw new Error(`cordis.patch.yml no longer declares the "${PRESET_ROW_ID}" row`)
   const plugins = (row.config?.plugins ?? []) as Row[]
   if (plugins.length === 0) throw new Error(`cordis.patch.yml declares no plugins for "${PRESET_ROW_ID}"`)
   return { row, plugins }
+}
+
+/**
+ * Reduce one child declaration's plugin list to {@link CHILD_MOUNTED_ROW_IDS}.
+ * `tool-bash` is kept only where the child declares it; the platform-disabled
+ * `tool-pwsh` row is dropped rather than mounting a Windows-only tool.
+ * @param row - a `preset-tavern-child-*` declaration row.
+ * @returns the reduced declaration row.
+ */
+export function mountedChildDeclaration(row: Row): Row {
+  const plugins = (row.config?.plugins ?? []) as Row[]
+  const byId = new Map(plugins.map(entry => [entry.id, entry]))
+  const mounted = CHILD_MOUNTED_ROW_IDS.flatMap((id) => {
+    const entry = byId.get(id)
+    if (entry === undefined) return []
+    const clone = structuredClone(entry)
+    if (id === 'skill-filesystem') {
+      const config = (clone.config ??= {}) as Record<string, unknown>
+      config.watch = false
+      config.includeDefaultRoots = false
+    }
+    return [clone]
+  })
+  return { ...row, config: { ...row.config, plugins: mounted } }
 }
 
 /**
@@ -394,11 +491,18 @@ const HOST_ROWS: Row[] = [
   { id: 'session-projection', name: '@deepseek-ai/dsh-session-projection' },
   { id: 'system-prompt', name: '@deepseek-ai/dsh-system-prompt' },
   { id: 'tools', name: '@deepseek-ai/dsh-tools' },
+  { id: 'working-directory', name: '@deepseek-ai/dsh-working-directory', config: { defaultDirectory: tmpdir() } },
   { id: 'agents', name: '@deepseek-ai/dsh-agent' },
   { id: 'agent-loop', name: '@deepseek-ai/dsh-agent-loop', config: { agents: [] } },
   { id: 'token-meter', name: '@deepseek-ai/dsh-token-meter' },
   { id: 'skills', name: '@deepseek-ai/dsh-skill' },
+  { id: 'shell-env', name: '@deepseek-ai/dsh-shell-env', config: {} },
+  { id: 'subprocess', name: TEST_SUBPROCESS, config: {} },
+  { id: 'shell', name: TEST_SHELL, config: {} },
+  // dsh 0.2.1's SubagentRuntime injects `workingDirectory`; the spawn provider
+  // is the official local backend the tavern delegation rows bind to.
   { id: 'subagents', name: '@deepseek-ai/dsh-subagent', config: {} },
+  { id: 'subagent-spawn', name: '@deepseek-ai/dsh-subagent-spawn-in-process', config: {} },
   { id: 'memory-fs', name: MEMORY_FS, config: {} },
   { id: 'agent-presets', name: '@deepseek-ai/dsh-agent-preset-registry', config: { default: PRESET_ID } },
 ]
@@ -410,17 +514,26 @@ const MODULES = new Map<string, unknown>([
   ['@deepseek-ai/dsh-session-projection', SessionProjection],
   ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
   ['@deepseek-ai/dsh-tools', ToolRuntime],
+  ['@deepseek-ai/dsh-working-directory', WorkingDirectory],
   ['@deepseek-ai/dsh-agent', AgentRegistry],
   ['@deepseek-ai/dsh-agent-loop', AgentLoop],
   ['@deepseek-ai/dsh-token-meter', TokenMeter],
   ['@deepseek-ai/dsh-skill', SkillRegistry],
+  ['@deepseek-ai/dsh-shell-env', ShellEnv],
+  [TEST_SUBPROCESS, TestSubprocess],
+  [TEST_SHELL, TestShell],
   ['@deepseek-ai/dsh-subagent', SubagentRuntime],
+  ['@deepseek-ai/dsh-subagent-spawn-in-process', SpawnInProcess],
   [MEMORY_FS, MemoryFs],
   ['@deepseek-ai/dsh-agent-preset-registry', AgentPresets],
   ['@deepseek-ai/dsh-agent-preset', AgentPreset],
   // The mounted preset rows, resolved by the registry's own entry tree.
   ['@deepseek-ai/dsh-persona', Persona],
   ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem],
+  ['@deepseek-ai/dsh-tool-fs', ToolFs],
+  ['@deepseek-ai/dsh-tool-fs-search', ToolFsSearch],
+  ['@deepseek-ai/dsh-tool-skill', ToolSkill],
+  ['@deepseek-ai/dsh-tool-bash', ToolBash],
   ['@deepseek-ai/dsh-tool-subagent', ToolSubagent],
   ['@ai4rpg/dsh-stage-switch', StageController],
   ['@ai4rpg/dsh-tavern-stages', TavernStages],
@@ -449,10 +562,16 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
     ...row,
     config: { ...row.config, plugins: mountedPluginRows(plugins) },
   }
+  // Every preset row travels through the Loader so the registry can resolve
+  // `agentPreset: tavern-child-*`; child declarations carry a reduced tool set
+  // (see mountedChildDeclaration). The host-plane sidebar row is not loaded.
+  const declarations = readPatchInsertions()
+    .filter(entry => entry.id?.startsWith('preset-'))
+    .map(entry => entry.config?.id === PRESET_ID ? declaration : mountedChildDeclaration(entry))
   const configPath = join(root, 'cordis.yml')
   // Re-emitted through the same `!!js` tag, so the Loader evaluates the
   // expression instead of receiving its source text.
-  await writeFile(configPath, stringify([...HOST_ROWS, declaration], {
+  await writeFile(configPath, stringify([...HOST_ROWS, ...declarations], {
     customTags: [JS_TAG],
     aliasDuplicateObjects: false,
     lineWidth: 0,
@@ -543,17 +662,42 @@ export async function waitFor<T>(label: string, probe: () => T | undefined, time
 }
 
 /**
- * Wait until the tavern rows have finished their asynchronous provider
- * registration. The delegation tools exist only once their bound provider
- * appears, and the first request is assembled from the tool table as it is at
- * that moment, so this runs before the turn.
+ * Wait until the official `spawn` provider is registered. The delegation rows
+ * bind to it at mount, so the tools exist only once it is present.
  * @param ctx - the composition's context.
  */
-export function waitForTavernProviders(ctx: Context): Promise<string[]> {
-  return waitFor('the tavern subagent providers', () => {
-    const registered = ctx.subagents.list()
-    const wanted = DELEGATION_TOOLS.map(name => `tavern:${name}`)
-    return wanted.every(name => registered.includes(name)) ? wanted : undefined
+export function waitForSpawnProvider(ctx: Context): Promise<string> {
+  return waitFor('the spawn subagent provider', () => ctx.subagents.list().includes('spawn') ? 'spawn' : undefined)
+}
+
+/**
+ * Start one child through the same seam a delegation tool uses: the official
+ * `spawn` provider plus an `agentPreset` selecting the child composition.
+ * `delivery: 'caller'` keeps the result on the activation and needs no
+ * persistence; the tool layer uses parent delivery in production.
+ * @param ctx - the composition's context.
+ * @param parent - the spawning agent.
+ * @param agentPreset - the child preset id.
+ * @param prompt - the child's task text.
+ * @returns the managed activation.
+ */
+export async function startChildActivation(
+  ctx: Context,
+  parent: Agent,
+  agentPreset: string,
+  prompt: string,
+) {
+  const signal = AbortSignal.timeout(30_000)
+  return await ctx.subagents.startActivation({
+    provider: 'spawn',
+    label: agentPreset,
+    request: {
+      parent,
+      prompt: [{ type: 'text', text: prompt }],
+      agentPreset,
+    },
+    signal,
+    delivery: 'caller',
   })
 }
 
@@ -602,7 +746,7 @@ export function seedStage(session: Session, stage: string): void {
 
 /** The stage-switch row's config as mounted, typed for assertions. */
 export interface StageConfig {
-  readonly stages: ReadonlyArray<{ readonly name: string, readonly instruction: string }>
+  readonly stages: ReadonlyArray<{ readonly name: string, readonly alias?: string, readonly instruction: string }>
   readonly section: string
   readonly language?: string
   readonly minHandoffTokens?: number

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Sync the agent personas from the upstream tavern-cards repository into
-// `agents/`: the named-subagent persona bodies that @ai4rpg/dsh-tavern-stages
-// reads at runtime (it resolves this package and registers one
-// `tavern:<name>` provider per `agents/*.md`).
+// `agents/`: the named-subagent persona bodies that the tavern-preset
+// generator reads at development time (it resolves this package through
+// `loadTavernAgents()` and embeds each body into a child preset). The
+// installed preset does not read this package at runtime.
 //
 // The personas are CC BY-NC-SA content — so is the whole package. The
 // directory license notice is rewritten on every sync because the tree is

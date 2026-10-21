@@ -4,7 +4,7 @@
 
 四个 tavern 具名子代理人格（`check-agent`、`conversion-agent`、`schema-agent`、`first-message-agent`），以纯 markdown 文件形式存放，同步自上游 [ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards)。
 
-`@ai4rpg/dsh-tavern-stages` 经自己的依赖图解析本包，读取 `agents/*.md`，并为每个 persona 注册一个 `tavern:<name>` 子代理 provider（frontmatter 的 `description` 成为绑定工具的描述）。预设包的生成器用同一来源为每个 persona 声明一行 `tool-subagent`，因此工具行与已注册的 provider 不会漂移。
+`@ai4rpg/dsh-tavern-stages` 提供本包所用的 `loadTavernAgents()` 加载器。预设生成器在开发期消费它：读取 `agents/*.md`，把每个 persona 的正文与 frontmatter `description` 内嵌为 `cordis.patch.yml` 里的 `tavern-child-*` 子预设。安装后的预设不在运行时加载本包；生成补丁就是运行期副本。本包是预设包的生成期 devDependency，不是运行时依赖。
 
 ## 目录契约
 
@@ -14,11 +14,11 @@
 ## 命令
 
 - `npm run sync`：清空并从上游重建 `agents/`（`TAVERN_CARDS_ROOT` 须指向你的 [tavern-cards](https://github.com/ai4rpg/tavern-cards) 检出；无默认值），随后校验 frontmatter/正文契约。
-- `npm test`：同一契约加布局守卫（当前四个人格都在；插件解析所用的包名未变）。
+- `npm test`：同一契约加布局守卫（当前四个人格都在；生成器解析所用的包名未变）。
 
 ## 新增、改名、删除人格
 
-新增人格是安全的：插件会注册一个没有绑定工具行的 provider。改名或删除是破坏性变更，因为预设的 `tool-subagent-*` 行按名绑定、会悬空。此类改动需与预设重新生成协同。
+新增人格对源包是安全的，但生成的预设要跑过 `npm run gen` 才会获得对应的委派行与子预设。改名或删除是破坏性变更，因为已有 `tavern-child-*` id 会被会话记录、`tool-subagent-*` 行按名绑定。此类改动需与预设重新生成协同，并对旧会话保留稳定 id。
 
 ## 许可
 

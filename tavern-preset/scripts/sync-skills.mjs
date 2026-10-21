@@ -19,6 +19,9 @@
 //                                  tavernForgeToCall turns every invocation into
 //                                  the `tavern_forge({ command, args })` form
 //   3. removeMisleadingScriptSentences — drop "scripts live here" lines
+//   4. rewriteDelegationSemantics — dsh 0.2.1 delegation is asynchronous:
+//                                  document the activation id + completion
+//                                  notification contract in the 子代理 sections
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -248,6 +251,43 @@ async function removeMisleadingScriptSentences() {
 }
 
 /**
+ * dsh 0.2.1 delegation is asynchronous: a tool call returns an activation id
+ * and the child's final answer arrives as the parent's completion
+ * notification. The upstream skill bodies predate that contract, so the
+ * model-facing 子代理 sections and the serial-conversion rule are rewritten
+ * here. Anchors that upstream has reworded warn; the guard after the rewrite
+ * fails the sync if the async wording is absent, so this cannot silently
+ * regress to "use the tool's return value".
+ */
+async function rewriteDelegationSemantics() {
+  const oldGuide = '调用时由 Agent harness 注入任务，主代理在 task 字符串里携带下表「输入」一列的参数，并按下表「输出」一列处理返回。'
+  const newGuide = '调用委派工具后立即返回 activation id；子代理的最终结果以完成通知送达。主代理在 prompt 参数里携带下表「输入」一列的参数；依赖结果才能继续的步骤，必须等完成通知到达后再继续，不要从工具返回值里取结果。'
+  const oldSerial = '- **串行处理**：必须根据子代理返回的实际位置分配下一个任务'
+  const newSerial = '- **串行处理**：等完成通知到达后，根据子代理报告的实际位置分配下一个任务'
+  const rewrites = [
+    { file: join(skillsRoot, 'tavern-design', 'SKILL.md'), from: oldGuide, to: newGuide },
+    { file: join(skillsRoot, 'tavern-cards', 'SKILL.md'), from: oldGuide, to: newGuide },
+    { file: join(skillsRoot, 'tavern-design', 'references', 'conversion', 'outline.md'), from: oldSerial, to: newSerial },
+  ]
+  for (const { file, from, to } of rewrites) {
+    if (!existsSync(file)) continue
+    const text = await readFile(file, 'utf8')
+    if (!text.includes(from)) {
+      console.warn(`warn: delegation rewrite anchor missing in ${file}`)
+      continue
+    }
+    await writeFile(file, text.replaceAll(from, to))
+  }
+  for (const file of [rewrites[0].file, rewrites[1].file, rewrites[2].file]) {
+    if (!existsSync(file)) continue
+    if (!(await readFile(file, 'utf8')).includes('等完成通知到达')) {
+      console.error(`error: async delegation wording missing in ${file}`)
+      process.exitCode = 1
+    }
+  }
+}
+
+/**
  * Extract every `args: [...]` array on a line with a bracket-balanced scan
  * that respects JSON string contents (an element may contain `]`, e.g. a
  * JSONPath query). Regex extraction is not reliable here: a line with two
@@ -347,8 +387,9 @@ for (const name of skills) {
 await rewriteToolFirst()
 await rewriteForgeToolReferences(skillsRoot)
 await removeMisleadingScriptSentences()
+await rewriteDelegationSemantics()
 await writeFile(join(skillsRoot, 'LICENSE.md'), skillsLicenseMd)
 const lintViolations = await lintToolCallExamples()
 for (const violation of lintViolations) console.error('error: ' + violation)
 if (lintViolations.length > 0) process.exitCode = 1
-console.log('synced skills as DSH edition: forge invocations -> tavern_forge({ command, args })')
+console.log('synced skills as DSH edition: forge invocations -> tavern_forge({ command, args }); delegation -> activation id + completion notification')

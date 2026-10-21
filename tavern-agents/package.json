@@ -1,6 +1,6 @@
 {
   "name": "@ai4rpg/tavern-agents",
-  "description": "The four tavern named-subagent personas (check / conversion / schema / first-message), synced from upstream tavern-cards and consumed by @ai4rpg/dsh-tavern-stages",
+  "description": "The four tavern named-subagent personas (check / conversion / schema / first-message), synced from upstream tavern-cards and read by the tavern-preset generator through @ai4rpg/dsh-tavern-stages",
   "version": "0.1.0",
   "license": "CC-BY-NC-SA-4.0",
   "private": true,

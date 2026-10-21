@@ -1,6 +1,6 @@
 ﻿# Tavern Cards dsh 一键安装脚本（Windows / PowerShell，功能同 install.sh）。
 # 独立于任何仓库检出：自动从 GitHub 获取内容仓 tavern-content（含预设包
-# tavern-preset 与子代理人格包 tavern-agents），并把预设包装进 dsh profile。
+# tavern-preset；tavern-agents 仅供开发期重新生成），并把预设包装进 dsh profile。
 # 插件（@ai4rpg/dsh-tavern-stages、@ai4rpg/dsh-stage-switch 等）是预设包的
 # npm 依赖，由 `dsh plugin add` 自动从 registry 带入，无需单独安装。
 #
@@ -234,7 +234,6 @@ if (-not $ContentDir) {
   $ContentDir = if ($env:TAVERN_CONTENT_ROOT) { $env:TAVERN_CONTENT_ROOT } else { Join-Path $HOME 'tavern-content' }
 }
 $PresetDir = Join-Path $ContentDir 'tavern-preset'
-$AgentsDir = Join-Path $ContentDir 'tavern-agents'
 
 # ---- 1/3 前置检查 ---------------------------------------------------------
 
@@ -332,9 +331,6 @@ if (Test-Path (Join-Path $PresetDir 'package.json')) {
 
 if (-not (Test-Path (Join-Path $PresetDir 'package.json'))) {
   Fatal "找不到预设包: $PresetDir（内容仓不完整？删除 $ContentDir 后重跑）"
-}
-if (-not (Test-Path (Join-Path $AgentsDir 'package.json'))) {
-  Fatal "找不到子代理人格包: $AgentsDir（预设包的 file:../tavern-agents 依赖需要同检出内的 tavern-agents/ 目录）"
 }
 
 # ---- 3/3 安装（桌面端有可用载体 = 同一流程；否则 = 打印指引） --------------
