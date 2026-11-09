@@ -1,6 +1,6 @@
 ﻿# Tavern Cards dsh 一键安装脚本（Windows / PowerShell，功能同 install.sh）。
 # 独立于任何仓库检出：自动从 GitHub 获取内容仓 tavern-content（含预设包
-# tavern-preset；tavern-agents 仅供开发期重新生成），并把预设包装进 dsh profile。
+# tavern-preset 及已生成的人格与技能），并把预设包装进 dsh profile。
 # 插件（@ai4rpg/dsh-tavern-stages、@ai4rpg/dsh-stage-switch 等）是预设包的
 # npm 依赖，由 `dsh plugin add` 自动从 registry 带入，无需单独安装。
 #

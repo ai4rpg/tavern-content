@@ -24,7 +24,9 @@
     "README.zh.md",
     "LICENSE.md",
     "scripts/gen-preset.mjs",
-    "scripts/sync-skills.mjs"
+    "scripts/load-agents.mjs",
+    "scripts/sync-skills.mjs",
+    "scripts/mechanical-check-overlay.mjs"
   ],
   "scripts": {
     "gen": "node scripts/gen-preset.mjs",
@@ -34,14 +36,13 @@
   },
   "dependencies": {
     "@ai4rpg/dsh-stage-switch": "^0.2.1",
-    "@ai4rpg/dsh-tavern-stages": "^0.2.0",
+    "@ai4rpg/dsh-tavern-stages": "^0.3.0",
     "@ai4rpg/dsh-ui-sidebar-stage": "^0.2.0"
   },
   "devDependencies": {
     "@ai4rpg/dsh-stage-switch": "^0.2.1",
-    "@ai4rpg/dsh-tavern-stages": "^0.2.0",
+    "@ai4rpg/dsh-tavern-stages": "^0.3.0",
     "@ai4rpg/dsh-ui-sidebar-stage": "^0.2.0",
-    "@ai4rpg/tavern-agents": "file:../tavern-agents",
     "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/cordis-plugin-include": "^1.0.10",
     "@deepseek-ai/cordis-plugin-loader": "^1.0.6",
@@ -79,5 +80,5 @@
     "vitest": "^4.0.0",
     "yaml": "^2.8.4"
   },
-  "//dependencies-note": "The @ai4rpg runtime dependencies are versioned ranges from npm. @ai4rpg/tavern-agents is a devDependency only: the generator reads its sibling checkout to embed the four personas into cordis.patch.yml, and the installed profile does not use it at runtime. In-repo dev installs of the plugin may use a --no-save directory install of a local tavern-stages checkout. @ai4rpg/dsh-tavern-stages carries the stage config (tavernCardsStageConfig) and the persona loader (loadTavernAgents) the generator uses; @ai4rpg/dsh-stage-switch is the stage machine its stage-switch row mounts (declared explicitly because that row is ours, not a transitive detail); @ai4rpg/dsh-ui-sidebar-stage backs the host-plane sidebar tab row the generated patch carries. The @deepseek-ai/* entries are the upstream DSH packages the composed rows need at test time plus the official base composition (@deepseek-ai/dsh-web-app/presets/standard.patch.yml) the generator derives from."
+  "//dependencies-note": "The @ai4rpg runtime dependencies are versioned ranges from npm. Persona sources are external generation inputs read from TAVERN_CARDS_ROOT/agents; the installed preset uses only the bodies embedded in cordis.patch.yml. No source package or upstream checkout is needed to install. @ai4rpg/dsh-tavern-stages supplies tavernCardsStageConfig; @ai4rpg/dsh-stage-switch and @ai4rpg/dsh-ui-sidebar-stage back rows declared by this preset. The @deepseek-ai/* devDependencies provide the real composed services for tests and the official standard base the generator reads."
 }

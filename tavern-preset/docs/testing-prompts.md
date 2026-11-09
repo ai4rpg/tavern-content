@@ -77,6 +77,10 @@ depends on it, and let the main agent apply any fix check-agent reports.
 ```
 
 **Observe:**
+- A declared entry's first `write` (before registration) and each `edit` produce a mechanical report before the next model request. The `first-message-agent` receives the same feedback in its own scope. Findings ask for correction without pretending the saved write failed or adding a pack/registration gate.
+- `check-agent` calls the fixed read-only `tavern_check` on the submitted files, then does independent semantic review. A missing/unreadable/unclassified file is not a mechanical pass. Its catalog still has no `write`, `edit`, `bash`, `pwsh`, or `tavern_forge`.
+- For a quick negative control, write a planned entry containing `似乎`, verify a report with a line-numbered hit, edit it away, and verify a clean report. Merely saying “the primary agent already checked” must not suppress the reviewer's own check.
+- Bash/external writes and missing/incomplete automatic reports use the skill's manual fallback. Files outside the declared project outputs (for example the loose `sample-entry.txt` in Layer 3) may be semantically reviewed but must not receive a fabricated mechanical pass.
 - In `content`, the model actively calls `schema-agent` / `first-message-agent` / `check-agent`.
 - Each delegation returns an activation id first; the model waits for the corresponding completion notification before using the result.
 - `check-agent` reviews from an **independent, read-only context** (it is not primed by the main agent's just-written text, and it cannot edit the manuscript); the main agent applies its suggested fixes.

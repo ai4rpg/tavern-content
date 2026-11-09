@@ -37,7 +37,7 @@
 import { mkdir, mkdtemp, readdir, readFile as readFileReal, rm, stat as statReal, symlink, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, isAbsolute, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { Group, Loader } from '@deepseek-ai/cordis-plugin-loader'
@@ -48,7 +48,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPreset from '@deepseek-ai/dsh-agent-preset'
 import AgentPresets, { auditRows } from '@deepseek-ai/dsh-agent-preset-registry'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
-import type { FsDirEntry, FsInfo, FsTarget, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import type { FsDirEntry, FsInfo, FsTarget, FsWriteOutcome, FsEditRequest } from '@deepseek-ai/dsh-fs'
 import LlmRuntime, { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as Persona from '@deepseek-ai/dsh-persona'
@@ -73,6 +73,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import StageController from '@ai4rpg/dsh-stage-switch'
 import * as TavernStages from '@ai4rpg/dsh-tavern-stages'
+import * as MechanicalCheck from '@ai4rpg/dsh-tavern-stages/mechanical-check'
 
 /** This checkout, as the realpath a resolved `!!js` expression lands on. */
 export const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -84,7 +85,7 @@ export const PRESET_ID = 'tavern-standard'
 export const PRESET_ROW_ID = 'preset-tavern-standard'
 
 /** The declared plugin rows whose runtime behaviour this host plane supports. */
-export const MOUNTED_ROW_IDS = ['persona', 'skill-filesystem', 'tavern'] as const
+export const MOUNTED_ROW_IDS = ['persona', 'tool-fs', 'skill-filesystem', 'tavern-mechanical-check', 'tavern'] as const
 
 /**
  * The child-preset rows this host plane mounts. The child declarations also
@@ -94,7 +95,7 @@ export const MOUNTED_ROW_IDS = ['persona', 'skill-filesystem', 'tavern'] as cons
  * {@link MOUNTED_ROW_IDS}).
  */
 export const CHILD_MOUNTED_ROW_IDS = [
-  'persona', 'tool-fs', 'tool-fs-search', 'skill-filesystem', 'tool-skill', 'tool-bash',
+  'persona', 'tool-fs', 'tool-fs-search', 'skill-filesystem', 'tool-skill', 'tool-bash', 'tavern-mechanical-check',
 ] as const
 
 /** The tavern group's row id, the subtree carrying the stage machine. */
@@ -308,9 +309,10 @@ export function tavernGroupOf(plugins: readonly Row[]): Row {
 export class MemoryFs extends FileSystem {
   /** Absolute display path → file content. */
   readonly files = new Map<string, string>()
+  private generation = 0
 
   override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
-    const absolute = path.startsWith('/') ? path : join(opts?.cwd ?? '/', path)
+    const absolute = isAbsolute(path) ? path : join(opts?.cwd ?? '/', path)
     return { targetKey: FsTargetKey(`memory:${absolute}`), displayPath: absolute }
   }
 
@@ -323,12 +325,12 @@ export class MemoryFs extends FileSystem {
   }
 
   override contains(parent: FsTarget, child: FsTarget): boolean {
-    return child.displayPath === parent.displayPath || child.displayPath.startsWith(`${parent.displayPath}/`)
+    return child.displayPath === parent.displayPath || child.displayPath.startsWith(`${parent.displayPath}${sep}`)
   }
 
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.displayPath)
-    if (content !== undefined) return { version: FsVersion('memory-v1'), type: 'file', size: content.length }
+    if (content !== undefined) return { version: FsVersion(`memory-${this.generation}`), type: 'file', size: Buffer.byteLength(content) }
     try {
       const info = await statReal(target.displayPath)
       return {
@@ -358,8 +360,11 @@ export class MemoryFs extends FileSystem {
     })()
   }
 
-  override async readBytes(): Promise<Uint8Array> {
-    return new Uint8Array()
+  override async readBytes(target: FsTarget, signal?: AbortSignal, maxBytes = Infinity): Promise<Uint8Array> {
+    signal?.throwIfAborted()
+    const bytes = new TextEncoder().encode(await this.readText(target))
+    if (bytes.length > maxBytes) throw new Error('file too large')
+    return bytes
   }
 
   override async readByteRange(target: FsTarget, range: { offset: number, length: number }): Promise<Uint8Array> {
@@ -371,7 +376,7 @@ export class MemoryFs extends FileSystem {
   }
 
   override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
-    const prefix = target.displayPath.endsWith('/') ? target.displayPath : `${target.displayPath}/`
+    const prefix = target.displayPath.endsWith(sep) ? target.displayPath : `${target.displayPath}${sep}`
     const entries: FsDirEntry[] = []
     const seen = new Set<string>()
     try {
@@ -389,7 +394,7 @@ export class MemoryFs extends FileSystem {
     }
     for (const path of this.files.keys()) {
       if (!path.startsWith(prefix)) continue
-      const name = path.slice(prefix.length).split('/')[0]!
+      const name = path.slice(prefix.length).split(sep)[0]!
       if (name === '' || seen.has(name)) continue
       seen.add(name)
       const child = join(target.displayPath, name)
@@ -401,16 +406,23 @@ export class MemoryFs extends FileSystem {
   override async writeText(target: FsTarget, content: string): Promise<FsWriteOutcome> {
     const before = this.files.get(target.displayPath) ?? null
     this.files.set(target.displayPath, content)
+    this.generation++
     return {
       operation: before === null ? 'create' : 'update',
-      version: FsVersion('memory-v1'),
+      version: FsVersion(`memory-${this.generation}`),
       before,
       after: content,
     }
   }
 
-  override async editText(): Promise<never> {
-    throw new Error('the composition harness writes whole fixture files only')
+  override async editText(target: FsTarget, edit: FsEditRequest) {
+    const before = await this.readText(target)
+    if (!before.includes(edit.oldString)) throw new Error('edit has no matching text')
+    if (!edit.replaceAll && before.split(edit.oldString).length !== 2) throw new Error('edit match is not unique')
+    const after = edit.replaceAll ? before.replaceAll(edit.oldString, edit.newString) : before.replace(edit.oldString, edit.newString)
+    this.files.set(target.displayPath, after)
+    this.generation++
+    return { before, after, version: FsVersion(`memory-${this.generation}`) }
   }
 }
 
@@ -537,6 +549,7 @@ const MODULES = new Map<string, unknown>([
   ['@deepseek-ai/dsh-tool-subagent', ToolSubagent],
   ['@ai4rpg/dsh-stage-switch', StageController],
   ['@ai4rpg/dsh-tavern-stages', TavernStages],
+  ['@ai4rpg/dsh-tavern-stages/mechanical-check', MechanicalCheck],
 ])
 
 /**
@@ -555,7 +568,7 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
   // this checkout (rather than copying skills/) keeps the real expression on
   // the real tree.
   await mkdir(join(root, 'node_modules', '@ai4rpg'), { recursive: true })
-  await symlink(repoRoot, join(root, 'node_modules', '@ai4rpg', 'dsh-tavern-preset'), 'dir')
+  await symlink(repoRoot, join(root, 'node_modules', '@ai4rpg', 'dsh-tavern-preset'), process.platform === 'win32' ? 'junction' : 'dir')
 
   const { row, plugins } = readPatchDeclaration()
   const declaration: Row = {
@@ -637,14 +650,14 @@ export interface StartedAgent {
  * @param cwd - the session working directory.
  * @returns the published agent and the mounted preset's id.
  */
-export async function startAgent(ctx: Context, id: string, cwd: string): Promise<StartedAgent> {
+export async function startAgent(ctx: Context, id: string, cwd: string, selectedPreset = PRESET_ID): Promise<StartedAgent> {
   let presetId = ''
   const handle = await ctx.agents.create({
     sessionId: SessionId(id),
     agentOptions: { provider: 'mock', model: 'mock' },
-    meta: { cwd, agentPreset: PRESET_ID },
+    meta: { cwd, agentPreset: selectedPreset },
     setup: async (agentCtx: Context) => {
-      presetId = (await ctx.agentPresets.mount(agentCtx, PRESET_ID)).id
+      presetId = (await ctx.agentPresets.mount(agentCtx, selectedPreset)).id
     },
   })
   return { agent: handle.agent, presetId }

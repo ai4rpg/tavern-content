@@ -26,6 +26,7 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mechanicalCheckDocs, mechanicalCheckModule } from './mechanical-check-overlay.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceRoot = process.env.TAVERN_CARDS_ROOT
@@ -388,6 +389,14 @@ await rewriteToolFirst()
 await rewriteForgeToolReferences(skillsRoot)
 await removeMisleadingScriptSentences()
 await rewriteDelegationSemantics()
+// Keep the upstream rules single-source while making their CLI import-safe for
+// the native DSH hook and the reviewer's fixed read-only tool.
+const checkerFile = join(skillsRoot, 'tavern-cards', 'scripts', 'mechanical-check.mjs')
+await writeFile(checkerFile, mechanicalCheckModule(await readFile(checkerFile, 'utf8')))
+for (const relative of ['SKILL.md', 'references/composition.md', 'references/contents-creation/first-message.md']) {
+  const file = join(skillsRoot, 'tavern-cards', relative)
+  await writeFile(file, mechanicalCheckDocs(relative, await readFile(file, 'utf8')))
+}
 await writeFile(join(skillsRoot, 'LICENSE.md'), skillsLicenseMd)
 const lintViolations = await lintToolCallExamples()
 for (const violation of lintViolations) console.error('error: ' + violation)

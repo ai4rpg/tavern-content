@@ -1,11 +1,11 @@
 # tavern-content
 
-[tavern-cards](https://github.com/ai4rpg/tavern-cards) 工作流在 DeepSeek Harness（dsh）上的内容仓：所有「内容与配置」而非插件代码的部分，一个克隆全带走。这里的包都**不发 npm**；它们组合的插件（`@ai4rpg/dsh-tavern-stages`、`@ai4rpg/dsh-stage-switch` 等）作为预设包的依赖从 npm 安装。
+[tavern-cards](https://github.com/ai4rpg/tavern-cards) 工作流在 DeepSeek Harness（dsh）上的内容仓：所有「内容与配置」而非插件代码的部分，一个克隆全带走。预设包**不发 npm**；它组合的插件（`@ai4rpg/dsh-tavern-stages`、`@ai4rpg/dsh-stage-switch` 等）作为预设包的依赖从 npm 安装。
 
 [English](README.md) | 中文
 
 - `tavern-preset/` —— `@ai4rpg/dsh-tavern-preset`，agent 预设包：声明式 `tavern-standard` 预设、三个 tavern 技能、persona 散文、宿主平面侧边栏行。**安装入口**——见 [`tavern-preset/docs/install-guide.zh.md`](tavern-preset/docs/install-guide.zh.md)。
-- `tavern-agents/` —— `@ai4rpg/tavern-agents`，四个具名子代理人格（CC BY-NC-SA）；作为预设包的生成期 devDependency，其正文被内嵌进生成补丁，而不是装进 profile。
+- 上游 [tavern-cards](https://github.com/ai4rpg/tavern-cards) —— 技能同步与四份子代理人格的开发输入。重新生成时通过 `TAVERN_CARDS_ROOT` 读取审核过的 main 快照；普通安装只需要本仓已提交的预设与技能，不需要上游检出。
 
 ## 安装
 
@@ -31,4 +31,4 @@ dsh plugin --profile web add file:<克隆目录的绝对路径>/tavern-preset
 
 ## 许可
 
-按包区分：`tavern-preset` 的代码部分 MIT、`skills/` 技能体 CC BY-NC-SA 4.0（见其 [`LICENSE.md`](tavern-preset/LICENSE.md)）；`tavern-agents` 整体 CC BY-NC-SA 4.0（见其 [`LICENSE.md`](tavern-agents/LICENSE.md)）。
+预设代码采用 MIT；同步的 `skills/`、上游测试快照及 `cordis.patch.yml` 内嵌的人格文本采用 CC BY-NC-SA 4.0。范围与署名见 [`tavern-preset/LICENSE.md`](tavern-preset/LICENSE.md)。

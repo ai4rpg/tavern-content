@@ -1,0 +1,4 @@
+# Preserve the pinned Git blob bytes on Windows checkouts too.
+tavern-cards/** text eol=lf
+# The pinned upstream skill ends with a blank line; retain its exact blob bytes.
+tavern-cards/SKILL.md whitespace=-blank-at-eof

@@ -299,7 +299,7 @@ export async function mountPresetSkillComposition(options: MountOptions = {}): P
     // directory, so the temp tree needs its own node_modules entry.
     const scopedModules = join(root, 'node_modules', '@ai4rpg')
     await mkdir(scopedModules, { recursive: true })
-    await symlink(repoRoot, join(scopedModules, 'dsh-tavern-preset'), 'dir')
+    await symlink(repoRoot, join(scopedModules, 'dsh-tavern-preset'), process.platform === 'win32' ? 'junction' : 'dir')
 
     const decoySkillsDir = join(root, 'decoy-skills')
     await mkdir(join(decoySkillsDir, DECOY_SKILL), { recursive: true })

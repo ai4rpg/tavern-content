@@ -1,10 +1,10 @@
-# License — preset/skills/ 与 agents/
+# License — skills/
 
 Copyright (c) 2026 ai4rpg
 
-本目录（`preset/skills/` 下的 `tavern-design` / `tavern-cards` / `tavern-ui` 三个技能，与 `agents/` 统一代理目录）
-同步自 [github.com/ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards)，
-**不受仓库根目录 `LICENSE`（MIT）的约束**，整体按
+本目录下的 `tavern-design` / `tavern-cards` / `tavern-ui` 三个技能同步自
+[github.com/ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards)，
+**不受仓库根目录 `LICENSE.md`（MIT）的约束**，整体按
 [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh)
 授权：
 

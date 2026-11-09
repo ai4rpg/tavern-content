@@ -6,7 +6,7 @@ DeepSeek Harness（dsh）上 [tavern-cards](https://github.com/ai4rpg/tavern-car
 
 安装本包是获得 tavern 工作流的正常方式：它声明一个预设 `tavern-standard`，组合了
 
-- [`@ai4rpg/dsh-tavern-stages`](https://www.npmjs.com/package/@ai4rpg/dsh-tavern-stages) —— 阶段配置、项目工作区工具（`tavern_forge`、焦点追踪、完成判定），以及为四个委派行与子预设提供人格正文的生成期加载器；
+- [`@ai4rpg/dsh-tavern-stages`](https://www.npmjs.com/package/@ai4rpg/dsh-tavern-stages) —— 阶段配置、项目工作区工具（`tavern_forge`、焦点追踪、完成判定），以及原生机械检查集成；
 - [`@ai4rpg/dsh-stage-switch`](https://www.npmjs.com/package/@ai4rpg/dsh-stage-switch) —— 这些阶段运行的阶段机；
 - 三个 tavern 技能 `tavern-design`、`tavern-cards`、`tavern-ui` —— 随本包的 `skills/` 目录交付（CC BY-NC-SA，见[许可](#许可)）；
 - 一份写作向 persona 散文覆盖；
@@ -35,10 +35,13 @@ dsh plugin --profile <name> add file:<本检出的绝对路径>
 |---|---|
 | persona 行替换为 `persona.yml` | 只换写作向散文；机制沿用基座的（模板保持 `complete` 与 `includeRuntimeContext` 未设），所以 plan-mode 段与运行时上下文照常渲染。 |
 | `skill-filesystem` 行加 `customSkillDirs` | 一个按 loader 的 `baseUrl` 解析的 `!!js` 表达式指向本包自己的 `skills/` 目录，官方技能 catalog 因此暴露三个 tavern 技能。 |
-| 追加 `tavern` 组 | 一个 `cordis:group`，带 `isolate: { stage: true }`（`stage` 服务不得泄漏进根域）：stage-switch 行（config = 插件包的 `tavernCardsStageConfig` + `language: zh`）、tavern-stages 行，以及插件每个 `agents/*.md` 一行 `tool-subagent-*`。 |
+| 原生机械检查 | 写作者在 `write` / `edit` 后收到报告；只读审稿代理获得固定的 `tavern_check` 工具。两者共用技能内的规则，不增加注册／打包硬门禁。 |
+| 追加 `tavern` 组 | 一个 `cordis:group`，带 `isolate: { stage: true }`（`stage` 服务不得泄漏进根域）：stage-switch 行（config = 插件包的 `tavernCardsStageConfig` + `language: zh`）、tavern-stages 行，以及上游每个 `agents/*.md` 一行 `tool-subagent-*`。 |
 | 追加四个 `tavern-child-*` 预设 | 每个委派行通过 `agentPreset` 选中其中一个；子预设的 persona 就是该代理正文，插件列表是该代理收窄后的工具集（不含 stage、委派与规划行）。 |
 
-组的委派行由插件的 `loadTavernAgents()` 生成，因此工具与人格不会漂移。每一行都绑定官方 `spawn` provider（`provider: spawn`）并声明子预设（`agentPreset: tavern-child-<agent>`）；行上不写 `persona` 与 `toolFilter`，0.2.1 对两者都会报错——身份与工具只存在于子预设里。
+检查流程与手动兜底见技能的 [composition 参考](skills/tavern-cards/references/composition.md#自动检查与手动兜底)。此集成需要插件的 `mechanical-check` 入口；只构建本地插件并不会更新已安装的 profile。
+
+组的委派行与子预设一起从经校验的上游 `agents/*.md` 生成，绑定关系与人格内容共用一份输入。每一行都绑定官方 `spawn` provider（`provider: spawn`）并声明子预设（`agentPreset: tavern-child-<agent>`）；行上不写 `persona` 与 `toolFilter`，0.2.1 对两者都会报错——身份与工具只存在于子预设里。
 
 **四个 `Tavern child · *` 预设是内部子预设。** 宿主没有 hidden 字段，所以它们会出现在预设选择器里；它们只用于让委派行组合出子代理，不要给用户会话选用。`check-agent` 子预设是只读的（`tool-fs` 关闭 `write` 与 `edit`）；只有 `conversion-agent` 子预设带 shell 工具（`bash` / `pwsh`），供它的校验脚本使用。
 
@@ -81,11 +84,17 @@ dsh plugin --profile <name> add file:<本检出的绝对路径>
 
 ## 开发
 
+重新生成与技能同步需要将 `TAVERN_CARDS_ROOT` 指向审核过的 [tavern-cards main 快照](https://github.com/ai4rpg/tavern-cards)，不要使用不稳定的功能分支工作树。当前源基线为 `b90b2ce741a999b2a2729cf0fe842129e408b459`，不要求特定检出位置。普通测试显式使用测试夹具，安装使用已提交的产物，两者均不需要上游检出。
+
 ```sh
-npm run gen     # 从基座 + persona.yml + 插件导出重新生成 cordis.patch.yml
-npm test        # 产物等式 + 真实 Loader 组合 + 技能发现
+export TAVERN_CARDS_ROOT="<审核过的 main 快照>"
+node scripts/sync-skills.mjs  # 仅更新技能时执行
+npm run gen                  # 校验上游人格并重新生成 cordis.patch.yml
+npm test                     # 自包含产物等式 + 真实 Loader 组合 + 技能发现
 npm run typecheck
 ```
+
+PowerShell 下先设置 `$env:TAVERN_CARDS_ROOT = '<审核过的 main 快照>'`，再运行相同命令。人格缺失或格式错误、现有 agent 被删除、正文含 `{{` 时，生成会明确失败，不会静默生成缺少子预设的配置。
 
 | 路径 | 是什么 |
 |---|---|
@@ -93,11 +102,11 @@ npm run typecheck
 | `persona.yml` | 预设的 persona 行——该散文的唯一可编辑事实源。 |
 | `stage-display.json` | 阶段的中文别名与 stage-switch 评审语言；由 `gen-preset.mjs` 读取。 |
 | `skills/` | 三个技能体的 DSH 版（每次 forge 调用都写成 `tavern_forge({ command, args })` 调用形）。由 `scripts/sync-skills.mjs` 从上游同步。 |
-| `scripts/gen-preset.mjs` | 派生生成器（基座 patch + persona + 插件导出 + 阶段显示元数据）。 |
+| `scripts/gen-preset.mjs` / `scripts/load-agents.mjs` | 生成器与严格的上游人格读取器；组合基座 patch、persona、插件阶段配置与显示元数据。 |
 | `scripts/sync-skills.mjs` | 上游技能同步（`TAVERN_CARDS_ROOT` 须指向 [tavern-cards](https://github.com/ai4rpg/tavern-cards) 检出）。 |
 
-`@ai4rpg/dsh-tavern-stages` 发 npm，普通 `npm install` 从 registry 解析。要测试插件本地改动，改用本地检出链接：`npm install --no-save <tavern-stages 检出路径>`；目录安装让插件从自己的 `node_modules` 解析 `@deepseek-ai/*` 依赖树。链接后的插件也会从它自己的检出解析人格包，所以从链接插件生成时请运行 `TAVERN_AGENTS_ROOT=\"$PWD/../tavern-agents\" npm run gen`；否则 `loadTavernAgents()` 会退化为 `[]`，生成结果会缺少子预设。人格源是本检出里的 devDependency（`file:../tavern-agents`），只供 `npm run gen` 使用；安装后的预设不加载它——生成的子预设已内嵌四份人格正文。
+`@ai4rpg/dsh-tavern-stages` 发 npm，常规开发从 registry 解析声明的发布版本。未发布的插件候选件请在隔离检出中使用构建后的 tarball，不改提交的依赖规格。人格加载由本生成器负责，不再依赖插件的依赖树：唯一来源是 `TAVERN_CARDS_ROOT/agents`，安装后的预设只使用内嵌正文。
 
 ## 许可
 
-仓库代码是 MIT（`LICENSE.md`）。`skills/` 下的三个技能体同步自 [ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards)，按 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en) 授权（署名-非商业-相同方式共享）；见 `skills/LICENSE.md`。
+仓库代码采用 MIT（`LICENSE.md`）。同步技能、上游测试快照与 `cordis.patch.yml` 内嵌的人格文本来源于 [ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards)，版权归 2026 ai4rpg，采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)（署名-非商业-相同方式共享）。生成时将 frontmatter 转为子预设声明，并追加 DSH 审稿指引，不改上游人格正文。范围见 `LICENSE.md`、`skills/LICENSE.md` 与夹具许可说明。

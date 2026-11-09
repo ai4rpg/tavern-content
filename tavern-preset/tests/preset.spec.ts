@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
-import { loadTavernAgents, tavernCardsStageConfig } from '@ai4rpg/dsh-tavern-stages'
+import { tavernCardsStageConfig } from '@ai4rpg/dsh-tavern-stages'
+import { loadAgents } from '../scripts/load-agents.mjs'
 
 /**
  * Guards for the one artifact this package ships: `cordis.patch.yml`, the
@@ -66,7 +67,9 @@ function basePlugins(): Row[] {
 const patch = readPatch()
 const declaration = byId(patch.insert, 'preset-tavern-standard')
 const plugins = pluginsOf(declaration)
-const agentsPromise = loadTavernAgents()
+// Test-only approved source input; never depend on an ambient upstream checkout.
+const sourceRoot = join(repoRoot, 'tests/fixtures/agents-upstream')
+const agentsPromise = loadAgents(sourceRoot)
 
 describe('generated patch', () => {
   it('is byte-identical to a fresh generator run', () => {
@@ -74,6 +77,7 @@ describe('generated patch', () => {
     try {
       execFileSync(process.execPath, [join(repoRoot, 'scripts', 'gen-preset.mjs'), '--out', out], {
         cwd: repoRoot,
+        env: { ...process.env, TAVERN_CARDS_ROOT: sourceRoot },
         stdio: 'pipe',
       })
       expect(readFileSync(out, 'utf8')).toBe(readFileSync(patchPath, 'utf8'))
@@ -121,9 +125,9 @@ describe('generated patch', () => {
       if (mutated.has(String(row.id))) continue
       expect(byId(plugins, String(row.id)), `base row ${row.id}`).toEqual(row)
     }
-    // …plus exactly one appended row: the tavern group.
-    expect(plugins).toHaveLength(base.length + 1)
-    expect(plugins.at(-1)!.id).toBe('tavern')
+    // Native write feedback is independent of the stage group.
+    expect(plugins).toHaveLength(base.length + 2)
+    expect(plugins.slice(-2).map(row => row.id)).toEqual(['tavern-mechanical-check', 'tavern'])
   })
 
   it('points the skill-filesystem row at this package\'s skills directory via a loader-evaluated expression', () => {
@@ -171,7 +175,7 @@ describe('tavern group', () => {
   })
 
   it('generates one spawn delegation tool per agents/*.md, each selecting its child preset', async () => {
-    const agents = await loadTavernAgents()
+    const agents = await agentsPromise
     expect(agents.map(agent => agent.name)).toEqual([
       'check-agent',
       'conversion-agent',
@@ -248,13 +252,21 @@ describe('child presets', () => {
         'skill-filesystem',
         'tool-skill',
         'compaction',
+        'tavern-mechanical-check',
       ])
 
-      expect(byId(rows, 'persona')).toEqual({
-        id: 'persona',
-        name: '@deepseek-ai/dsh-persona',
-        config: { prefix: agent.body },
-      })
+      const prefix = String(byId(rows, 'persona').config!.prefix)
+      expect(prefix.startsWith(agent.body)).toBe(true)
+      if (agent.name === 'check-agent') {
+        expect(prefix).toContain('## DSH 机械复查')
+        expect(prefix).toContain('tavern_check')
+        expect(prefix).not.toContain('{{')
+      } else expect(prefix).toBe(agent.body)
+      const checker = byId(rows, 'tavern-mechanical-check')
+      expect(checker.name).toBe('@ai4rpg/dsh-tavern-stages/mechanical-check')
+      expect(checker.config!.autoCheck).toBe(agent.name !== 'check-agent')
+      expect(checker.config!.checkTool).toBe(agent.name === 'check-agent')
+      expect(String(checker.config!.checkerPath)).toContain("'skills', 'tavern-cards', 'scripts', 'mechanical-check.mjs'")
 
       for (const id of childOrder.filter(id => id !== 'persona')) {
         const generated = byId(rows, id)
@@ -333,27 +345,22 @@ describe('package metadata', () => {
     expect(pkg.files).toContain('cordis.patch.yml')
     expect(pkg.files).toContain('skills')
     expect(pkg.files).toContain('stage-display.json')
+    expect(pkg.files).toContain('scripts/load-agents.mjs')
   })
 
   it('depends on the composed packages as registry ranges', () => {
-    // Ranges only, with one deliberate exception: @ai4rpg/tavern-agents is a
-    // generator-time devDependency pinned to its sibling checkout, which
-    // ships in the same download, so the relative `file:` spec stays
-    // portable. Any other `file:`/`link:`/`portal:` spec would point outside
-    // the repo and break on another machine.
+    // Every dependency is distributable; external content is an explicit build
+    // input, not a file/link spec tied to a developer's checkout layout.
     for (const [name, spec] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) {
-      if (name === '@ai4rpg/tavern-agents') {
-        expect(spec, name).toBe('file:../tavern-agents')
-        continue
-      }
       expect(spec, name).not.toMatch(/^(file|link|portal):/)
       expect(spec, name).toMatch(/^\^?\d+\.\d+\.\d+/)
     }
-    expect(pkg.dependencies['@ai4rpg/dsh-tavern-stages']).toMatch(/^\^0\.2\./)
+    expect(pkg.dependencies['@ai4rpg/dsh-tavern-stages']).toBe('^0.3.0')
+    expect(pkg.devDependencies['@ai4rpg/dsh-tavern-stages']).toBe('^0.3.0')
     expect(pkg.dependencies['@ai4rpg/dsh-stage-switch']).toMatch(/^\^0\.2\./)
     expect(pkg.dependencies['@ai4rpg/dsh-ui-sidebar-stage']).toMatch(/^\^0\.2\./)
     expect(pkg.dependencies).not.toHaveProperty('@ai4rpg/tavern-agents')
-    expect(pkg.devDependencies['@ai4rpg/tavern-agents']).toBe('file:../tavern-agents')
+    expect(pkg.devDependencies).not.toHaveProperty('@ai4rpg/tavern-agents')
   })
 
   it('targets the dsh 0.2.1 line through engines.dsh', () => {
@@ -364,11 +371,13 @@ describe('package metadata', () => {
     expect(pkg.devDependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-in-process-driver')
   })
 
-  it('licenses the code as MIT with the CC BY-NC-SA skill scope spelled out', () => {
+  it('licenses the code as MIT with CC BY-NC-SA skills, embedded personas and fixtures', () => {
     expect(pkg.license).toBe('SEE LICENSE IN LICENSE.md')
     const license = readFileSync(join(repoRoot, 'LICENSE.md'), 'utf8')
     expect(license).toContain('MIT License')
-    expect(license).toContain('except the `skills/` directory')
+    expect(license).toContain('`skills/` directory')
     expect(license).toContain('CC BY-NC-SA 4.0')
+    expect(license).toContain('cordis.patch.yml')
+    expect(license).toContain('tests/fixtures/')
   })
 })

@@ -11,7 +11,7 @@ English | [中文](install-guide.zh.md)
 | `preset-tavern-standard` | The preset declaration: one `@deepseek-ai/dsh-agent-preset` row with `config.id: tavern-standard`, roster `order: 5`, and the `Tavern Cards` display metadata (single language — fixed when the package is generated). Sessions select it from the preset chip. |
 | four `preset-tavern-child-*` declarations | Internal child presets, `order: 6..9`, one per delegation agent. Each carries that agent's body as its persona and a narrow tool set. They are intended to be selected only by a delegation row (`agentPreset`); do not pick one for a user session. |
 | `ui-sidebar-stage` row | The stage sidebar tab, mounted at the host level. It is passive UI: it injects no prompt text and registers no tools. |
-| `@ai4rpg/dsh-tavern-stages` (dependency) | The plugin: the stage configuration for `dsh-stage-switch`, the `tavern_forge` project tool with focus tracking and the completion predicate, and the generator-time persona loader the four delegation rows and child presets are generated from. |
+| `@ai4rpg/dsh-tavern-stages` (dependency) | The plugin: the stage configuration for `dsh-stage-switch`, the `tavern_forge` project tool with focus tracking and the completion predicate, and the native mechanical-check integration. |
 | `@ai4rpg/dsh-stage-switch` (dependency) | The stage machine (`route → design → planning → content → ui`), `goto_stage`, the `/stage` command, and the review dialog. |
 | `@ai4rpg/dsh-ui-sidebar-stage` (dependency) | The browser module behind the sidebar tab. |
 | `skills/` and `persona.yml` (shipped in this package) | The three tavern skill bodies (`tavern-design`, `tavern-cards`, `tavern-ui`) and the writing-oriented persona prose. The preset's `skill-filesystem` row exposes the skills through `customSkillDirs`. |
@@ -23,7 +23,7 @@ Everything else in the preset is the official `standard` composition (file tools
 - `dsh` on the `0.2.1-rc.2` line — an installed CLI, or a dsh source checkout where you run the launcher through `pnpm dsh …`. The package declares this through `engines.dsh` (`>=0.2.1-rc.2 <0.3.0-0`), which dsh checks before loading it. The profile composes `dsh-base` + `dsh-web-app`, which provide the session, tool, skill, subagent, token-meter, and session-projection services the preset's rows resolve from.
 - Node.js `^22.19 || >=24` and `pnpm` on `PATH`: `dsh plugin` forwards to pnpm (`npm install -g pnpm`, or enable corepack). The official desktop client is the exception — it installs through its own bundled pnpm and dsh, so it needs neither of them on this machine.
 - Network access to the npm registry — the first command pulls dsh's own dependency tree into the profile.
-- This preset package is a **local checkout, not an npm package**: the install command points at the preset folder inside the cloned content repo. The plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as its dependency. The generated patch already embeds the four persona bodies; the agents content package is a generator-time devDependency in the checkout, not a runtime dependency of the installed profile.
+- This preset package is a **local checkout, not an npm package**: the install command points at the preset folder inside the cloned content repo. The plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as its dependency. The generated patch already embeds the four persona bodies; installation needs neither an upstream checkout nor a persona source package.
 - A model provider and API key, configured in the Web UI under **Settings → Providers** before the first session.
 
 ## Install
@@ -34,7 +34,7 @@ dsh plugin --profile web add file:<absolute path to your tavern-content clone>/t
 
 From a dsh source checkout, prefix the launcher: `pnpm dsh plugin --profile web add file:<absolute path>`.
 
-- The path is absolute: `dsh plugin` refuses a relative spec, and the shell does not expand `~` after `file:`. This preset package is a local checkout, not an npm package; the plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as a regular dependency. The agents content is only a checkout devDependency for regeneration; the installed profile does not need it.
+- The path is absolute: `dsh plugin` refuses a relative spec, and the shell does not expand `~` after `file:`. This preset package is a local checkout, not an npm package; the plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as a regular dependency. Upstream persona sources are needed only for regeneration, not installation.
 - `web` is the profile the Web UI boots; use another profile name if that is where you want the preset. A profile that does not exist yet is created from the shipped template on first use.
 - The command installs the package with pnpm, selects its bundle layer in `dsh.profile.bundles`, and resolves its dependencies into the profile. That resolution is what lets the preset's rows load (`@ai4rpg/dsh-stage-switch`, `@ai4rpg/dsh-tavern-stages`, the four `@deepseek-ai/dsh-tool-subagent` delegation rows, and the four child preset declarations) and what puts `tavern-cards-forge` (the CLI behind `tavern_forge`) where the tool finds it.
 - `@ai4rpg/dsh-tavern-stages` arrives as a dependency, so adding it by hand is unnecessary; the preset package is the single install path.

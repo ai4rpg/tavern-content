@@ -6,7 +6,7 @@ English | [中文](README.zh.md)
 
 Installing this package is the normal way to get the tavern workflow: it declares one preset, `tavern-standard`, that composes
 
-- [`@ai4rpg/dsh-tavern-stages`](https://www.npmjs.com/package/@ai4rpg/dsh-tavern-stages) — the stage config, the project-workspace tooling (`tavern_forge`, focus tracking, the completion predicate), and the generator-time persona loader that feeds the four delegation rows and their child presets;
+- [`@ai4rpg/dsh-tavern-stages`](https://www.npmjs.com/package/@ai4rpg/dsh-tavern-stages) — the stage config, the project-workspace tooling (`tavern_forge`, focus tracking, the completion predicate), and the native mechanical-check integration;
 - [`@ai4rpg/dsh-stage-switch`](https://www.npmjs.com/package/@ai4rpg/dsh-stage-switch) — the stage machine those stages run on;
 - the three tavern skills `tavern-design`, `tavern-cards`, `tavern-ui` — shipped in this package's `skills/` directory (CC BY-NC-SA, see [License](#license));
 - a writing-oriented persona prose override;
@@ -35,10 +35,13 @@ The patch inserts a declaration whose `plugins` list **is** the official `standa
 |---|---|
 | Persona row replaced with `persona.yml` | Writing-oriented prose only; the mechanism stays the base's (the template leaves `complete` and `includeRuntimeContext` unset), so plan-mode sections and runtime contexts still render. |
 | `skill-filesystem` row gains `customSkillDirs` | A `!!js` expression resolved against the loader's `baseUrl` points at this package's own `skills/` directory, so the official skill catalog exposes the three tavern skills. |
+| Native mechanical checking is added | Writers receive a report after `write` / `edit`; the read-only reviewer gets the fixed `tavern_check` tool. The same skill-owned rules serve both; no registration/pack gate is added. |
 | The `tavern` group is appended | One `cordis:group` with `isolate: { stage: true }` (the stage service must not leak into the root realm): the stage-switch row (config = the plugin package's `tavernCardsStageConfig` + `language: zh`), the tavern-stages row, and one `tool-subagent-*` row per `agents/*.md`. |
 | Four `tavern-child-*` presets are appended | Each delegation row selects one through `agentPreset`; the child preset's persona is the agent body and its plugin list is the agent's narrow tool set (no stage, delegation, or planning rows). |
 
-The group's delegation rows are generated from the plugin's `loadTavernAgents()`, so the tools and the personas cannot drift. Every row binds the official `spawn` provider (`provider: spawn`) and names its child preset (`agentPreset: tavern-child-<agent>`); `persona` and `toolFilter` stay off the row, because 0.2.1 rejects both — identity and tools live in the child preset.
+For the checking workflow and manual fallback, see the skill's [composition reference](skills/tavern-cards/references/composition.md#自动检查与手动兜底). This integration requires the plugin's `mechanical-check` entry; a local checkout build alone does not update an installed profile.
+
+The group's delegation rows and child presets are generated together from validated upstream `agents/*.md`, so their bindings and persona content share one input. Every row binds the official `spawn` provider (`provider: spawn`) and names its child preset (`agentPreset: tavern-child-<agent>`); `persona` and `toolFilter` stay off the row, because 0.2.1 rejects both — identity and tools live in the child preset.
 
 **The four `Tavern child · *` presets are internal.** They appear in the preset roster because the host has no hidden flag, but they exist only so the delegation rows can compose a child; do not select one for a user session. The `check-agent` child is read-only (`tool-fs` with `write` and `edit` off); only the `conversion-agent` child has shell tools (`bash` / `pwsh`) for its validation script.
 
@@ -81,11 +84,17 @@ Remove or disable the four `tool-subagent-*` rows in the declared `tavern` group
 
 ## Develop
 
+Regeneration and skill synchronization require `TAVERN_CARDS_ROOT` pointing at an approved [tavern-cards main snapshot](https://github.com/ai4rpg/tavern-cards); do not use an unstable feature-branch worktree. The current source baseline is `b90b2ce741a999b2a2729cf0fe842129e408b459`. No particular checkout location is assumed. Ordinary tests use explicit test fixtures, and installation uses the committed outputs; neither needs the upstream checkout.
+
 ```sh
-npm run gen     # regenerate cordis.patch.yml from the base + persona.yml + the plugin exports
-npm test        # artifact equation + real Loader composition + skill discovery
+export TAVERN_CARDS_ROOT="<approved-main-snapshot>"
+node scripts/sync-skills.mjs  # only when updating skills
+npm run gen                  # validate upstream agents and regenerate cordis.patch.yml
+npm test                     # hermetic artifact equation + real Loader composition + skill discovery
 npm run typecheck
 ```
+
+In PowerShell, set `$env:TAVERN_CARDS_ROOT = '<approved-main-snapshot>'` before the same commands. Generation fails on missing/invalid personas, required-agent removal, or `{{` in a body; it never silently emits a preset without children.
 
 | Path | What it is |
 |---|---|
@@ -93,11 +102,11 @@ npm run typecheck
 | `persona.yml` | The preset's persona row — the single editable source for that prose. |
 | `stage-display.json` | Chinese stage aliases and the stage-switch review language; consumed by `gen-preset.mjs`. |
 | `skills/` | The three skill bodies as the DSH edition (each forge invocation written as a `tavern_forge({ command, args })` call). Synced from upstream by `scripts/sync-skills.mjs`. |
-| `scripts/gen-preset.mjs` | The derived generator (base patch + persona + plugin exports + stage display). |
+| `scripts/gen-preset.mjs` / `scripts/load-agents.mjs` | Generator and strict upstream persona reader; use the base patch, persona, plugin stage config and stage display. |
 | `scripts/sync-skills.mjs` | Upstream skill sync (`TAVERN_CARDS_ROOT` must point at a [tavern-cards](https://github.com/ai4rpg/tavern-cards) checkout). |
 
-`@ai4rpg/dsh-tavern-stages` ships on npm; plain `npm install` resolves it from the registry. To test local plugin changes, link a local checkout instead: `npm install --no-save <path to your tavern-stages checkout>`; a directory install keeps the plugin resolving its `@deepseek-ai/*` tree from its own `node_modules`. A linked plugin resolves the agents package from that checkout too, so run `TAVERN_AGENTS_ROOT=\"$PWD/../tavern-agents\" npm run gen` when generating from a linked plugin; otherwise `loadTavernAgents()` degrades to `[]` and omits the child presets. The agents source is a devDependency of this checkout (`file:../tavern-agents`) used by `npm run gen`; the installed preset does not load it — the generated child presets embed the four persona bodies.
+`@ai4rpg/dsh-tavern-stages` ships on npm; normal development resolves the declared release from the registry. For unpublished plugin candidates, use an isolated checkout and a built candidate tarball rather than changing the committed dependency specs. Persona loading belongs to this generator, not the plugin's dependency tree: `TAVERN_CARDS_ROOT/agents` is the only source, and the installed preset uses its embedded bodies.
 
 ## License
 
-Repository code is MIT (`LICENSE.md`). The three skill bodies under `skills/` are synced from [ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards) and licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en) (attribution, non-commercial, share-alike); see `skills/LICENSE.md`.
+Repository code is MIT (`LICENSE.md`). The synced skills, upstream test snapshots, and persona text embedded in `cordis.patch.yml` originate from [ai4rpg/tavern-cards](https://github.com/ai4rpg/tavern-cards), copyright (c) 2026 ai4rpg, and are [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en) (attribution, non-commercial, share-alike). Generation adapts the persona frontmatter into child declarations and appends DSH-specific reviewer instructions; it does not change the upstream persona bodies. See `LICENSE.md`, `skills/LICENSE.md` and the fixture notices.

@@ -90,6 +90,7 @@ description: "创建、编辑、评估 SillyTavern 角色卡和世界书（角�
 
 - **tavern_forge**（DSH 插件模型工具）：forge 命令的唯一入口，调用形式 `tavern_forge({ command, args })`：`command` 为子命令（init / configure / patch / query / pack / unpack / split / export / validate-mvu），`args` 为子命令后的参数数组。下文示例均为这一调用形式。人类快捷：`/tavern-forge <command> <args…>`、`/tavern-pack <project>`。
 - 完整子命令、选项与数据模型见 `references/manual.md`。
+- **机械检查**：DSH 的 `write` / `edit` 后自动返回报告；未运行时才手动兜底。`check-agent` 通过只读 `tavern_check` 独立复查。流程与兜底见 `references/composition.md#自动检查与手动兜底`，判据见 `references/rules-check.md`。
 
 ## 参考资料
 

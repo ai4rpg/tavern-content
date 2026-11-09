@@ -17,7 +17,7 @@
  *      `tavernCardsStageConfig` from the plugin package + this deployment's
  *      display metadata from `stage-display.json`: Chinese aliases and review
  *      language), the tavern-stages row, and one `tool-subagent` row per
- *      `loadTavernAgents()` entry — so the delegation tools cannot drift from
+ *      validated upstream agent — so the delegation tools cannot drift from
  *      the personas they delegate to;
  *   4. one child preset per agent is appended: `tavern-child-<agent>` carries
  *      the agent body as its persona prefix and a narrow tool set derived from
@@ -32,7 +32,8 @@
  *   node scripts/gen-preset.mjs [--lang=zh|en] [--out <file>]     (default: ./cordis.patch.yml)
  *   node scripts/gen-preset.mjs --stdout
  *
- * Regeneration is idempotent for an unchanged base + plugin package +
+ * Requires TAVERN_CARDS_ROOT pointing at an approved upstream main snapshot.
+ * Regeneration is idempotent for unchanged upstream agents, base, plugin and
  * `stage-display.json`; the output is committed, and `tests/preset.spec.ts`
  * fails if it drifts.
  *
@@ -44,7 +45,8 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Document, YAMLSeq, parseDocument } from 'yaml'
-import { loadTavernAgents, tavernCardsStageConfig } from '@ai4rpg/dsh-tavern-stages'
+import { tavernCardsStageConfig } from '@ai4rpg/dsh-tavern-stages'
+import { loadAgents } from './load-agents.mjs'
 
 const require = createRequire(import.meta.url)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -65,6 +67,7 @@ const SKILL_FILESYSTEM_PACKAGE = '@deepseek-ai/dsh-skill-filesystem'
 const TOOL_SUBAGENT_PACKAGE = '@deepseek-ai/dsh-tool-subagent'
 const STAGE_SWITCH_PACKAGE = '@ai4rpg/dsh-stage-switch'
 const TAVERN_STAGES_PACKAGE = '@ai4rpg/dsh-tavern-stages'
+const MECHANICAL_CHECK_PACKAGE = `${TAVERN_STAGES_PACKAGE}/mechanical-check`
 const SIDEBAR_PACKAGE = '@ai4rpg/dsh-ui-sidebar-stage'
 const SELF_PACKAGE = '@ai4rpg/dsh-tavern-preset'
 
@@ -136,10 +139,26 @@ if (DISPLAY === undefined) {
  * from the profile's installed modules — the same pattern the harness uses for
  * its own shipped presets.
  */
-const SKILL_DIRS_EXPR = "process.getBuiltinModule('node:path').join("
-  + "process.getBuiltinModule('node:path').dirname("
-  + `process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('${SELF_PACKAGE}/package.json')`
-  + "), 'skills')"
+function installedPathExpr(...segments) {
+  return "process.getBuiltinModule('node:path').join("
+    + "process.getBuiltinModule('node:path').dirname("
+    + `process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('${SELF_PACKAGE}/package.json')`
+    + `), ${segments.map(segment => `'${segment}'`).join(', ')})`
+}
+const SKILL_DIRS_EXPR = installedPathExpr('skills')
+const CHECKER_PATH_EXPR = installedPathExpr('skills', 'tavern-cards', 'scripts', 'mechanical-check.mjs')
+
+/** Runtime-specific instructions stay here, not in upstream persona content. */
+const REVIEWER_APPENDIX = '\n\n## DSH 机械复查\n\n先调用只读工具 tavern_check，paths 传入本次送检的全部文件路径（每批至多 20 个）。工具读取当前实际文件；不要信任主代理口述的“已通过”，也不必手工重复词表扫描或计算断句比例。检查未完成不能宣称机械项通过。随后独立阅读正文与规则，判断适用范围、合法例外、活人感及跨条目重复/引用；机器零命中不等于语义通过。只报告问题与建议，不改稿，不运行 shell。'
+
+function mechanicalCheckRow(base, reviewer = false) {
+  const row = base.createNode({
+    id: 'tavern-mechanical-check', name: MECHANICAL_CHECK_PACKAGE,
+    config: { checkerPath: CHECKER_PATH_EXPR, autoCheck: !reviewer, checkTool: reviewer },
+  })
+  row.getIn(['config', 'checkerPath'], true).tag = 'tag:yaml.org,2002:js'
+  return row
+}
 
 /** The base composition's `plugins` list, as a live YAML node. */
 function basePlugins() {
@@ -216,7 +235,9 @@ function childPlugins(agent) {
     throw new Error(`gen-preset: the base composition is missing child preset rows: ${missing.join(', ')}`)
   }
   const child = base.createNode(rowIds.map((id) => {
-    if (id === 'persona') return base.createNode(personaRow(agent.body))
+    if (id === 'persona') return base.createNode(personaRow(
+      agent.body + (agent.name === 'check-agent' ? REVIEWER_APPENDIX : ''),
+    ))
     // Reuse the parsed node: `!!js` tags on tool-bash/tool-pwsh must survive.
     return baseRows.get(id)
   }))
@@ -226,6 +247,7 @@ function childPlugins(agent) {
     if (row === undefined) throw new Error(`gen-preset: no ${id} row to apply the ${agent.name} delta to`)
     for (const [key, value] of Object.entries(config)) row.setIn(['config', key], value)
   }
+  child.add(mechanicalCheckRow(base, agent.name === 'check-agent'))
   return child
 }
 
@@ -295,14 +317,14 @@ function tavernGroup(agents) {
 
 /** Render the patch document. */
 async function generate() {
-  const agents = await loadTavernAgents()
+  const agents = await loadAgents()
   const { base, plugins } = basePlugins()
   applyPersonaOverride(base, plugins)
   applySkillDirs(base, plugins)
   const group = base.createNode(tavernGroup(agents))
   group.commentBefore = [
     ' The tavern group. The stage config is the plugin package\'s `tavernCardsStageConfig`',
-    ' plus this deployment\'s `language`; the delegation rows come from `loadTavernAgents()`.',
+    ' plus this deployment\'s `language`; the delegation rows come from validated upstream agents.',
   ].join('\n')
   group.getIn(['config', 1]).commentBefore = [
     ' Stage plugin and project tooling only. Delegation is owned by dsh 0.2.1:',
@@ -316,6 +338,7 @@ async function generate() {
       ' contract; never rename or drop a `tavern-child-*` id once shipped.',
     ].join('\n')
   }
+  plugins.add(mechanicalCheckRow(base))
   plugins.add(group)
 
   const children = agents.map((agent, index) => ({
@@ -354,7 +377,7 @@ async function generate() {
     ' GENERATED by scripts/gen-preset.mjs — do not edit by hand.',
     ` Source: ${BASE_PATCH} (${BASE_PRESET_ROW_ID} row)`,
     '         + persona.yml',
-    `         + ${TAVERN_STAGES_PACKAGE} exports (tavernCardsStageConfig, loadTavernAgents()).`,
+    `         + ${TAVERN_STAGES_PACKAGE} export (tavernCardsStageConfig) + upstream agents.`,
     ' Regenerate with `npm run gen`; tests/preset.spec.ts fails on drift.',
   ].join('\n')
   return doc.toString({ lineWidth: 80, singleQuote: true })

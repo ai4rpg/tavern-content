@@ -16,7 +16,7 @@
 // whole stack is not this host plane's job (the harness mounts only
 // `MOUNTED_ROW_IDS` and `CHILD_MOUNTED_ROW_IDS`).
 import { afterEach, describe, expect, it } from 'vitest'
-import { loadTavernAgents } from '@ai4rpg/dsh-tavern-stages'
+import { sep } from 'node:path'
 import {
   DELEGATION_TOOLS,
   PRESET_ID,
@@ -24,6 +24,8 @@ import {
   mountedStageConfig,
   requestText,
   requestTools,
+  readPatchInsertions,
+  type Row,
   runTurn,
   startAgent,
   startChildActivation,
@@ -119,7 +121,7 @@ describe('tavern-standard through the real loader', () => {
         const base = skill.resourceBase
         expect(base?.kind, `${skill.name} resolves to a directory base`).toBe('directory')
         if (base?.kind === 'directory') {
-          expect(base.path).toContain('/skills/')
+          expect(base.path).toContain(`${sep}skills${sep}`)
         }
       }
     } finally {
@@ -135,14 +137,16 @@ describe('tavern child presets through delegation', () => {
     const request = await childRequest(composition, 'tavern-child-check-agent', 'Review the entry.')
 
     const text = requestText(request)
-    // The persona prefix is the agent body from loadTavernAgents().
-    const checkAgent = (await loadTavernAgents()).find(agent => agent.name === 'check-agent')!
-    expect(text).toContain(checkAgent.body)
+    // Runtime composition needs only the shipped declaration, not source files.
+    const child = readPatchInsertions().find(row => row.config?.id === 'tavern-child-check-agent')!
+    const persona = (child.config!.plugins as Row[]).find(row => row.id === 'persona')!
+    expect(text).toContain(String(persona.config!.prefix))
     expect(text).toContain('# check-agent')
     expect(text).toContain('**审稿师**')
 
     const tools = requestTools(request)
-    for (const tool of ['read', 'glob', 'grep', 'skill']) expect(tools).toContain(tool)
+    for (const tool of ['read', 'glob', 'grep', 'skill', 'tavern_check']) expect(tools).toContain(tool)
+    expect(text).toContain('## DSH 机械复查')
     // The reviewer reports; it never edits, runs commands, or sees the parent's
     // stage/delegation surface.
     for (const tool of ['write', 'edit', 'bash', 'pwsh', 'goto_stage', 'tavern_forge']) {
@@ -173,6 +177,7 @@ describe('tavern child presets through delegation', () => {
       expect(tools, presetId).not.toContain('tavern_forge')
       expect(tools, presetId).not.toContain('bash')
       expect(tools, presetId).not.toContain('pwsh')
+      expect(tools, presetId).not.toContain('tavern_check')
     }
   })
 })
