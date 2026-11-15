@@ -126,8 +126,8 @@ describe('single-source mechanical rules', () => {
 
 describe('repeatable DSH sync overlay', () => {
   const blobs = [
-    ['SKILL.md', 'af0116b1ff16a6f18b88f33f8dd4a72394550976'],
-    ['references/composition.md', '4e6e4d1ae618c67eb382ff541974298ec11a1f2c'],
+    ['SKILL.md', 'dd785a23415cef9d116a68b0ca2c5f55bc05bb9e'],
+    ['references/composition.md', 'd1820a72179797fcc3f3cc1c506af678864ee048'],
     ['references/contents-creation/first-message.md', '62926917e32745fbef47b89040e361f4257edb75'],
     ['scripts/mechanical-check.mjs', 'd2b4fd4f7c387d3d37f76fcaef10647ed0e38ffe'],
   ] as const

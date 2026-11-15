@@ -21,11 +21,11 @@ tavern 上下文是**按会话**的：完整工作流只在 `tavern-standard` �
 dsh plugin --profile <name> add file:<本检出的绝对路径>
 ```
 
-本包是本地检出，不是 npm 包；拉进来的插件（`@ai4rpg/dsh-tavern-stages`）发 npm。安装命令指向磁盘上的文件夹；路径必须是绝对路径（`dsh plugin` 拒绝相对 spec），安装的目标就是本检出目录本身。
+本包不是 npm 包：可以从本地检出安装（见上），也可以装某个 tag 的 GitHub release tarball；拉进来的插件（`@ai4rpg/dsh-stage-switch`、`@ai4rpg/dsh-tavern-stages`、`@ai4rpg/dsh-ui-sidebar-stage`）发 npm。安装命令指向磁盘上的文件夹；路径必须是绝对路径（`dsh plugin` 拒绝相对 spec），安装的目标就是本检出目录本身。
 
-官方桌面端（Electron 客户端）用的是应用独占的 `desktop` profile，独立安装的 `dsh` 管不了它。在应用内安装：用客户端自带的 `dsh`（菜单**管理 dsh 命令…**会把它注册到 PATH）跑上面那条命令，或把同样的路径填进侧边栏**插件**页的安装框。也可以在检出里跑 `bash install.sh --profile desktop`，脚本会准备检出并替你跑那条自带的 `dsh`。
+官方桌面端用的是应用独占的 `desktop` profile：在应用内用自带 `dsh` 安装，或在检出里跑 `bash install.sh --profile desktop`；三条路见安装指南。
 
-**完整步骤见 `docs/install-guide.zh.md`**：命令行 profile 见「安装」与「校验」，桌面端见「官方桌面端」（一条命令脚本、`plugin_manager` 备用路、排错）。
+**完整步骤见 `docs/install-guide.zh.md`**：命令行、桌面端、GitHub release、校验、升级与排错。
 
 ## 预设包含什么
 
@@ -41,11 +41,11 @@ dsh plugin --profile <name> add file:<本检出的绝对路径>
 
 检查流程与手动兜底见技能的 [composition 参考](skills/tavern-cards/references/composition.md#自动检查与手动兜底)。此集成需要插件的 `mechanical-check` 入口；只构建本地插件并不会更新已安装的 profile。
 
-组的委派行与子预设一起从经校验的上游 `agents/*.md` 生成，绑定关系与人格内容共用一份输入。每一行都绑定官方 `spawn` provider（`provider: spawn`）并声明子预设（`agentPreset: tavern-child-<agent>`）；行上不写 `persona` 与 `toolFilter`，0.2.1 对两者都会报错——身份与工具只存在于子预设里。
+组的委派行与子预设一起从经校验的上游 `agents/*.md` 生成，绑定关系与人格内容共用一份输入。每一行都绑定官方 `spawn` provider（`provider: spawn`）并声明子预设（`agentPreset: tavern-child-<agent>`）；行上不写 `persona` 与 `toolFilter`，0.2.2 对两者都会报错——身份与工具只存在于子预设里。
 
 **四个 `Tavern child · *` 预设是内部子预设。** 宿主没有 hidden 字段，所以它们会出现在预设选择器里；它们只用于让委派行组合出子代理，不要给用户会话选用。`check-agent` 子预设是只读的（`tool-fs` 关闭 `write` 与 `edit`）；只有 `conversion-agent` 子预设带 shell 工具（`bash` / `pwsh`），供它的校验脚本使用。
 
-**委派是异步的。** 委派工具立即返回 `{ kind: 'activation', subagentId }`，子代理的最终答案稍后以父级的完成通知送达。依赖结果的步骤要等完成通知，不要从工具返回值里取答案。子预设带 `skill` 工具，需要 tavern 参考文档的子代理会按需加载；返回的 `resourceBase.path` 就是 `references/` 的目录基。
+**委派是异步的。** 委派工具立即返回 `{ kind: 'activation', name }`（子代理名称），子代理的最终答案稍后以父级的完成通知送达。依赖结果的步骤要等完成通知，不要从工具返回值里取答案。子预设带 `skill` 工具，需要 tavern 参考文档的子代理会按需加载；返回的 `resourceBase.path` 就是 `references/` 的目录基。
 
 补丁还会在宿主平面激活 stage 侧栏标签页。该标签页不能搭预设的车：浏览器 module roster 只扫主 Loader 树，而预设行住在另一棵树里。它是被动 UI（不注入提示词 section，不注册工具）。
 
@@ -79,12 +79,12 @@ dsh plugin --profile <name> add file:<本检出的绝对路径>
 
 ## 要求
 
-- dsh `0.2.1-rc.2` 版本线（Web profile 用 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`）；本包通过 `engines.dsh`（`>=0.2.1-rc.2 <0.3.0-0`）声明这一点。
-- Node `^22.19 || >=24`（skill 目录的 `!!js` 表达式用了 `process.getBuiltinModule`）。
+- dsh `>=0.2.2-rc.3 <0.3.0-0`（Web profile 用 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`），由 `engines.dsh` 声明。
+- Node `>=24.9.0`，与目标 dsh runtime 的最低要求一致。
 
 ## 开发
 
-重新生成与技能同步需要将 `TAVERN_CARDS_ROOT` 指向审核过的 [tavern-cards main 快照](https://github.com/ai4rpg/tavern-cards)，不要使用不稳定的功能分支工作树。当前源基线为 `b90b2ce741a999b2a2729cf0fe842129e408b459`，不要求特定检出位置。普通测试显式使用测试夹具，安装使用已提交的产物，两者均不需要上游检出。
+重新生成与技能同步需要将 `TAVERN_CARDS_ROOT` 指向审核过的 [tavern-cards main 快照](https://github.com/ai4rpg/tavern-cards)，不要使用不稳定的功能分支工作树。当前源基线为 `c8458faa3d882faf6636f24b67dec16dbff8571a`，不要求特定检出位置。普通测试显式使用测试夹具，安装使用已提交的产物，两者均不需要上游检出。
 
 ```sh
 export TAVERN_CARDS_ROOT="<审核过的 main 快照>"

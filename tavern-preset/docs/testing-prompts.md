@@ -27,7 +27,7 @@ conversion-agent, schema-agent, and first-message-agent are present.
 Do not call anything — just list the names.
 ```
 
-**Pass:** the model names all four delegation tools. If absent, confirm the session is on `tavern-standard` and the declared tavern group carries the four `tool-subagent-*` rows with `provider: spawn` and an `agentPreset` naming an existing `tavern-child-*` preset; a missing `spawn` provider (dsh 0.2.1's `dsh-subagent-spawn-in-process`) leaves the delegation tool unregistered — the row stays mounted and registers the tool when the provider appears. Read the diagnostic shown at session creation if the group itself failed.
+**Pass:** the model names all four delegation tools. If absent, confirm the session is on `tavern-standard` and the declared tavern group carries the four `tool-subagent-*` rows with `provider: spawn` and an `agentPreset` naming an existing `tavern-child-*` preset; a missing `spawn` provider (dsh 0.2.2's `dsh-subagent-spawn-in-process`) leaves the delegation tool unregistered — the row stays mounted and registers the tool when the provider appears. Read the diagnostic shown at session creation if the group itself failed.
 
 **Model & reasoning-effort default (worth one check):** the shipped preset leaves every `tool-subagent-*` row's `agentOptions` unset, so a child starts on the parent session's provider, model, reasoning effort, output-token limit, and working directory — the same defaults as a plain `subagent` child. To pin a per-tool model or force a different effort, edit the declared preset — the Web preset editor saves an override row into the profile patch — then open a NEW session: a running session keeps the preset revision it started with.
 
@@ -51,7 +51,7 @@ telling me the result.
 
 **Observe:**
 - The model calls the `check-agent` tool instead of reviewing the file itself.
-- The tool returns immediately with an activation id (`{ kind: 'activation', subagentId }`); the review text is **not** in the tool result. The model continues only after the completion notification arrives.
+- The tool returns immediately with an activation receipt (`{ kind: 'activation', name }`, the child's name); the review text is **not** in the tool result. The model continues only after the completion notification arrives.
 - The completion notification contains the reviewer's 「通过 / 不通过」 verdict and, for a failure, the location, violation type, original text, and suggestion.
 - `sample-entry.txt` is unchanged: the `check-agent` child is read-only (`tool-fs` with `write` and `edit` off) and has no shell.
 - The notification carries the "reviewer / 审稿师" persona voice, confirming the agent body reached the child's preset persona.
@@ -82,7 +82,7 @@ depends on it, and let the main agent apply any fix check-agent reports.
 - For a quick negative control, write a planned entry containing `似乎`, verify a report with a line-numbered hit, edit it away, and verify a clean report. Merely saying “the primary agent already checked” must not suppress the reviewer's own check.
 - Bash/external writes and missing/incomplete automatic reports use the skill's manual fallback. Files outside the declared project outputs (for example the loose `sample-entry.txt` in Layer 3) may be semantically reviewed but must not receive a fabricated mechanical pass.
 - In `content`, the model actively calls `schema-agent` / `first-message-agent` / `check-agent`.
-- Each delegation returns an activation id first; the model waits for the corresponding completion notification before using the result.
+- Each delegation returns an activation receipt (the child's name) first; the model waits for the corresponding completion notification before using the result.
 - `check-agent` reviews from an **independent, read-only context** (it is not primed by the main agent's just-written text, and it cannot edit the manuscript); the main agent applies its suggested fixes.
 - `schema-agent` and `first-message-agent` write with `write` / `edit` — **not** `bash` redirection: bash file writes emit no `fs/observed`, so they never feed the project-focus tracker behind `stage:policy`. Only `conversion-agent` has shell tools, for `node scripts/validate-conversion-outline.mjs`.
 - `/tavern-pack <project>` produces a card artifact.
@@ -93,7 +93,7 @@ depends on it, and let the main agent apply any fix check-agent reports.
 The last check-agent call did not produce the expected review. Do not retry —
 first answer:
 1. What was the `prompt` argument you passed?
-2. What activation id did the tool return, and did the completion notification
+2. What activation receipt (name) did the tool return, and did the completion notification
    arrive?
 3. What did the notification say (or what error text did it carry)?
 4. Which tools did the child see on its first turn?

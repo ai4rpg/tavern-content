@@ -46,6 +46,17 @@ function readPatch(text = readFileSync(patchPath, 'utf8')): { insert: Row[] } {
   return layer!
 }
 
+/** Every top-level patch layer of the generated file, in application order. */
+function readLayers(text = readFileSync(patchPath, 'utf8')): Row[][] {
+  // The file is a sequence of layers: an `insert` wrapper is a full layer,
+  // while a bare row is a one-row layer of its own.
+  const layers = parse(text, { customTags: [JS_TAG] }) as Array<Row | { insert: Row[] }>
+  return layers.map(layer => {
+    const rows = (layer as { insert?: Row[] }).insert
+    return Array.isArray(rows) ? rows : [layer as Row]
+  })
+}
+
 function pluginsOf(row: Row): Row[] {
   return row.config!.plugins as Row[]
 }
@@ -98,6 +109,18 @@ describe('generated patch', () => {
     expect(byId(patch.insert, 'ui-sidebar-stage').name).toBe('@ai4rpg/dsh-ui-sidebar-stage')
   })
 
+  it('disables the bundle-level Office skills row that the preset composition cannot reach', () => {
+    // The Office skills ship with the web-app bundle, so they are not rows of
+    // the preset composition; only an id-targeted disable keeps them out of a
+    // session using this preset. `office-kit` stays: the document preview
+    // sidebar renders Office files through it.
+    const layers = readLayers()
+    expect(layers).toHaveLength(2)
+    expect(byId(layers[1]!, 'skill-office').disabled).toBe(true)
+    expect(plugins.some(row => row.id === 'skill-office')).toBe(false)
+    expect(layers.flat().some(row => row.id === 'office-kit')).toBe(false)
+  })
+
   it('declares the resume-contract preset id with display metadata and roster order', () => {
     expect(declaration.name).toBe('@deepseek-ai/dsh-agent-preset')
     expect(declaration.config!.id).toBe('tavern-standard')
@@ -110,7 +133,7 @@ describe('generated patch', () => {
     expect(declaration.config!.order).toBe(5)
   })
 
-  it('is the base composition with only the persona row replaced', () => {
+  it('is the base composition minus tool-office with persona and skill-filesystem replaced', () => {
     const base = basePlugins()
     const [persona] = parse(readFileSync(join(repoRoot, 'persona.yml'), 'utf8'), {
       customTags: [JS_TAG],
@@ -118,16 +141,33 @@ describe('generated patch', () => {
     const generated = byId(plugins, 'persona')
     expect(generated).toEqual(persona)
 
-    // Every other base row survives verbatim (the skill-filesystem row differs
-    // only by the added customSkillDirs entry, asserted separately below).
+    // Every other base row survives verbatim; skill-filesystem differs only by
+    // the added customSkillDirs entry, and tool-office is intentionally removed.
     const mutated = new Set(['persona', 'skill-filesystem'])
+    const removed = new Set(['tool-office'])
     for (const row of base) {
-      if (mutated.has(String(row.id))) continue
+      if (mutated.has(String(row.id)) || removed.has(String(row.id))) continue
       expect(byId(plugins, String(row.id)), `base row ${row.id}`).toEqual(row)
     }
+    expect(plugins.some(row => row.id === 'tool-office')).toBe(false)
     // Native write feedback is independent of the stage group.
-    expect(plugins).toHaveLength(base.length + 2)
+    expect(plugins).toHaveLength(base.length - 1 + 2)
     expect(plugins.slice(-2).map(row => row.id)).toEqual(['tavern-mechanical-check', 'tavern'])
+  })
+
+  it('keeps the rc.3 base migration and its permissions explicit', () => {
+    const delegation = byId(plugins, 'delegation').config as unknown as Row[]
+    expect(delegation.map(row => row.id)).not.toContain('tool-subagent-list-agents')
+    expect(JSON.stringify(plugins)).not.toContain('@deepseek-ai/dsh-tool-subagent-control/list-agents')
+    const subagent = byId(delegation, 'tool-subagent').config!
+    expect(subagent.modelSelection).toBe(true)
+    expect(subagent.modelDiscovery).toBe(true)
+    expect(subagent).not.toHaveProperty('modelSelectionSettings')
+    expect(byId(delegation, 'tool-subagent-control').config).toEqual({ interrupt: false })
+    expect(byId(plugins, 'tool-plugin-manager').disabled).toBe("!ctx.get('profileContext')")
+    for (const row of patch.insert.filter(row => row.id?.startsWith('preset-'))) {
+      expect(byId(pluginsOf(row), 'tool-fs').config!.applyPatch, String(row.id)).toBe(false)
+    }
   })
 
   it('points the skill-filesystem row at this package\'s skills directory via a loader-evaluated expression', () => {
@@ -195,7 +235,7 @@ describe('tavern group', () => {
           maxDepth: 'provider-managed',
         },
       })
-      // 0.2.1 rejects `persona`/`toolFilter` at mount and silently ignores the
+      // 0.2.2 rejects `persona`/`toolFilter` at mount and silently ignores the
       // two background keys; identity and tools belong to the child preset.
       for (const dead of ['persona', 'toolFilter', 'enableRunInBackground', 'backgroundMode']) {
         expect(toolRows[index]!.config).not.toHaveProperty(dead)
@@ -280,7 +320,7 @@ describe('child presets', () => {
           }
         }
         if (id === 'tool-fs' && agent.name === 'check-agent') {
-          expected.config = { write: false, edit: false }
+          expected.config = { ...expected.config, write: false, edit: false, applyPatch: false }
         }
         expect(generated, `${agent.name} row ${id}`).toEqual(expected)
       }
@@ -357,17 +397,20 @@ describe('package metadata', () => {
     }
     expect(pkg.dependencies['@ai4rpg/dsh-tavern-stages']).toBe('^0.3.0')
     expect(pkg.devDependencies['@ai4rpg/dsh-tavern-stages']).toBe('^0.3.0')
-    expect(pkg.dependencies['@ai4rpg/dsh-stage-switch']).toMatch(/^\^0\.2\./)
+    expect(pkg.dependencies['@ai4rpg/dsh-stage-switch']).toBe('^0.2.2')
+    expect(pkg.devDependencies['@ai4rpg/dsh-stage-switch']).toBe('^0.2.2')
     expect(pkg.dependencies['@ai4rpg/dsh-ui-sidebar-stage']).toMatch(/^\^0\.2\./)
     expect(pkg.dependencies).not.toHaveProperty('@ai4rpg/tavern-agents')
     expect(pkg.devDependencies).not.toHaveProperty('@ai4rpg/tavern-agents')
   })
 
-  it('targets the dsh 0.2.1 line through engines.dsh', () => {
-    expect(pkg.engines.dsh).toBe('>=0.2.1-rc.2 <0.3.0-0')
+  it('requires dsh 0.2.2-rc.3 and its Node runtime minimum', () => {
+    expect(pkg.engines.dsh).toBe('>=0.2.2-rc.3 <0.3.0-0')
+    expect(pkg.engines.node).toBe('>=24.9.0')
     for (const [name, spec] of Object.entries(pkg.devDependencies)) {
-      if (name.startsWith('@deepseek-ai/dsh-')) expect(spec, name).toBe('^0.2.1-rc.2')
+      if (name.startsWith('@deepseek-ai/dsh-')) expect(spec, name).toBe('^0.2.2-rc.3')
     }
+    expect(pkg.devDependencies['@deepseek-ai/dsh-tool-executor-native']).toBe('^0.2.2-rc.3')
     expect(pkg.devDependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-in-process-driver')
   })
 

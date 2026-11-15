@@ -39,12 +39,21 @@ characters:
       - 左眼下有泪痣
       - 穿女仆装（黑色长裙+白色围裙+白色吊带袜+系带小皮鞋）
     identity: 渣男，有两位数前女友
-    personality: 适应良好，脸皮厚
+    personality:
+      - situation: 赴约提分手，面对莉莉丝
+        behavior: 直说分手不作铺垫，适应良好、脸皮厚
+        chapter: 1-魔女小姐
+      - situation: 被问是否恨莉莉丝
+        behavior: 顺势认下过错，再拿对方的在意开玩笑
+        chapter: 2-天下无敌
     relationship: 莉莉丝的魔女女仆
     quotes:
       - chapter: 1-魔女小姐
         context: 江酒坦白自己来赴约是为了分手
         text: 没错，今晚我是来跟你提分手的。
+      - chapter: 2-天下无敌
+        context: 面对把自己变成魔女的人，不示弱，反而调侃对方的在意
+        text: 人要为自己犯下的错负责，既然我渣了你就理应被你报复，哦，虽然我一开始还真不知道原来你这么喜欢我，爱之深恨之切，主人你原来得有多喜欢我才会恨我恨到把我变成魔女啊？
   - name: 莉莉丝
     gender: 女
     appearance:
@@ -52,7 +61,10 @@ characters:
       - 长发如墨，纯黑眼眸
       - 不涂口红，唇色苍白
     identity: 大魔女
-    personality: 神秘优雅，与时俱进
+    personality:
+      - situation: 要求江酒承认主仆关系
+        behavior: 用反问代替命令，不直接说破
+        chapter: 2-天下无敌
     relationship: 江酒的主人
     quotes:
       - chapter: 2-天下无敌
@@ -136,21 +148,22 @@ style_hints:                   # 可选；从源材料推断的文风信息，�
 **记录内容**：
 - 角色名称
 - `identity`：身份定位（职业、社会角色等）
-- `personality`：性格概要（核心性格特征）
+- `personality`：性格概要列表，每条记录一类情境下的行为倾向及其依据章节
 - `relationship`：与核心角色的关系
 - 可选 `birth_year` / `age`：时间跨度大的长篇用 `birth_year`，短篇或时间跨度小可用 `age`
 - 可选 `gender`：性别
 - 可选 `appearance`：源材料中明确提到的外貌特征（标志性装扮、特殊体貌、伤疤等）
-- 可选 `quotes`：角色代表性原文引用，用于后续角色写作时判断性格底色、行为边界、关系动态和说话方式
+- 可选 `quotes`：角色行为与台词的原文引用，用于判断性格底色、行为边界、关系动态和说话方式；体现新情境或与既有印象有反差的原文行为句同样记录
 
 **要求**：
 - 每个有戏份的角色都要记录
-- 首次出现时记录，后续有重要变化时更新
-- `identity`、`personality`、`relationship` 三个字段各自一句话
+- 按章节记录角色的原文行为证据；人物形象在整理深化阶段统一比对与归纳
+- `identity`、`relationship` 各一句话；`personality` 用列表写核心底色与按情境区分的记录外新表现，每条注明依据的 `quotes[].chapter`
 - `appearance` 只记录源材料明确提到的特征，源材料没提的外貌不自行补全
 - `quotes[].text` 必须逐字来自原文，禁止改写、拼接或概括
+- `quotes[].context` 写清该原句在章节中的情境；与既有印象有差异时点明反差
 - `quotes[].chapter` 必须与 `chapters[].name` 中的章节名一致
-- 没有足够代表性的原句时不填 `quotes`
+- 同一情境下同类行为只留最有代表性的一两条原文句；原文没有可逐字引用的行为时才不填 `quotes`
 
 ### items
 

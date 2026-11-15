@@ -25,7 +25,9 @@
 
 初读完成后，进入整理深化：补充 `summary`、`story_summary` 等汇总信息，合并重复内容，整理原文引用，确保一致性。详见 `references/conversion/outline.md` 第七步。
 
-长文本使用子代理串行处理，调用 `conversion-agent`，详见 `references/conversion/outline.md`。
+长文本分片交给 `conversion-agent` 处理，详见 `references/conversion/outline.md`。
+
+合并整理、关键信息确认与转化质量检查都依赖大纲结果；材料转化阶段没有不依赖大纲结果的独立工作。
 
 **子代理职责**：
 - 通读指定范围的内容
@@ -57,7 +59,8 @@
    - [ ] 所有章节都有 `chapters[].notes`，且内容具体（50-100 字）
    - [ ] 源材料中的关键世界观设定已提取
    - [ ] 主要角色、重要配角、关键关系都已记录
-   - [ ] 角色的 `identity`、`personality`、`relationship` 各自独立
+   - [ ] 角色的 `identity`、`personality`、`relationship` 内容不互相重复
+   - [ ] 有 `quotes[]` 的角色，其 `personality[]` 中记录外的新表现都已归并，且每条 `chapter` 都能在 `quotes[].chapter` 中找到依据
    - [ ] 角色的 `appearance` 只包含偏离默认认知的特征，无万能美人描写
    - [ ] 源材料明确提到的区域和场景已记录到 `regions[]`
    - [ ] 势力的 `territory` 和 `key_members`（源材料有提及时）已记录
@@ -67,7 +70,7 @@
    - [ ] `missing_names` 中的问题已完成关键信息确认，确认结果已写回大纲或 `design-spec.md`
 
 3. **引用整理检查**：
-   - [ ] `characters[].quotes[]` 已合并去重，保留能体现性格底色、行为边界、关系动态、说话方式的代表性原句
+   - [ ] `characters[].quotes[]` 已按章节顺序合并，按情境与反差保留
    - [ ] `important_chapters[].quotes[]` 每章最多 1-2 条，且能支撑章节重要性
    - [ ] 所有 `quotes[].text` 都未被改写、截断或拼接
    - [ ] 所有 `quotes[].chapter` 和 `important_chapters[].chapter` 都与 `chapters[].name` 完全一致

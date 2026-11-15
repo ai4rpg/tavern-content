@@ -94,10 +94,10 @@ wc -m 源材料.txt
 
 ## 第五步B：分配子代理任务（长文本）
 
-长文本使用子代理串行处理。
+长文本分片交给子代理处理。
 
 **分配原则**：
-- **串行处理**：等完成通知到达后，根据子代理报告的实际位置分配下一个任务
+- **首片段先行**：先完成第一个片段，确认章节边界与上下文容量等堵点；后续任务的起始行按已产出片段记录的实际结束位置确定
 - **章节完整**：不能截断章节，子代理必须在完整章节边界停止
 - **批次大小**：建议按卷分配，或每 2-3 万字一批
 - **分卷优先**：尽量按卷分配，保持卷内完整性
@@ -107,13 +107,14 @@ wc -m 源材料.txt
 - 源文件路径
 - 行范围（起始行-结束行）
 - 输出路径
-- 前序大纲片段路径（如有）：子代理可读取了解上下文
+- 已完成大纲片段路径（如有）
 
 **子代理职责**：
 - 通读指定范围的内容
 - 为每章撰写 notes（章节概要）
 - 提取世界观、势力、角色、物品等关键信息
 - 提取人物塑造、剧情高潮、核心世界观揭示的原文引用
+- 记录本片段内角色的原文行为句与情境，不判断是否为新表现
 - 按 `outline-spec.md` 规范记录
 - 输出后运行 `scripts/validate-conversion-outline.mjs` 验证片段，验证不通过时修正后重跑
 
@@ -126,6 +127,7 @@ wc -m 源材料.txt
 2. 去重重叠章节（按 name 匹配，保留最完整版本）
 3. 合并全局信息（worldview、factions、characters、items、important_chapters）
 4. 去重全局信息中的重复项
+5. 按 `chapters[]` 的排列顺序归并 `characters[].quotes[]`；本步不筛选代表性，去重与归纳留到第七步
 
 ## 第七步：整理深化
 
@@ -145,7 +147,9 @@ wc -m 源材料.txt
    - 确保一致性
 
 3. **原文引用整理**：
-   - 合并同一角色在不同片段中的 `characters[].quotes[]`，保留能体现性格底色、行为边界、关系动态、说话方式的代表性原句
+   - 按情境与反差记录 `characters[].quotes[]`，尤其是体现新表现的行为句
+   - 按角色聚合 `characters[].quotes[]`，与 `personality` 比对，把记录外的新表现归纳进人物形象，每条注明依据的 `quotes[].chapter`
+   - 「新表现」指与 `personality[]` 已有条目在 `situation` 或 `behavior` 倾向上不同、且有 `quotes[].chapter` 支撑的行为
    - 合并 `important_chapters[].quotes[]`，每章最多保留 1-2 条最能支撑重要性的原文原句
    - 去除普通信息句、重复引用、无法支撑 `context` 的引用
    - 不改写 `quotes[].text`，只能逐字保留原文；如需要调整说明，只改 `context` 或 `function`
@@ -193,7 +197,10 @@ characters:
     appearance:                # 可选
       - ...
     identity: ...
-    personality: ...
+    personality:
+      - situation: ...
+        behavior: ...
+        chapter: ...
     relationship: ...
     quotes:
       - chapter: ...

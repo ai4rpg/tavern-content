@@ -6,24 +6,14 @@ English | [中文](install-guide.zh.md)
 
 ## What the install brings
 
-| Piece | What it is |
-|---|---|
-| `preset-tavern-standard` | The preset declaration: one `@deepseek-ai/dsh-agent-preset` row with `config.id: tavern-standard`, roster `order: 5`, and the `Tavern Cards` display metadata (single language — fixed when the package is generated). Sessions select it from the preset chip. |
-| four `preset-tavern-child-*` declarations | Internal child presets, `order: 6..9`, one per delegation agent. Each carries that agent's body as its persona and a narrow tool set. They are intended to be selected only by a delegation row (`agentPreset`); do not pick one for a user session. |
-| `ui-sidebar-stage` row | The stage sidebar tab, mounted at the host level. It is passive UI: it injects no prompt text and registers no tools. |
-| `@ai4rpg/dsh-tavern-stages` (dependency) | The plugin: the stage configuration for `dsh-stage-switch`, the `tavern_forge` project tool with focus tracking and the completion predicate, and the native mechanical-check integration. |
-| `@ai4rpg/dsh-stage-switch` (dependency) | The stage machine (`route → design → planning → content → ui`), `goto_stage`, the `/stage` command, and the review dialog. |
-| `@ai4rpg/dsh-ui-sidebar-stage` (dependency) | The browser module behind the sidebar tab. |
-| `skills/` and `persona.yml` (shipped in this package) | The three tavern skill bodies (`tavern-design`, `tavern-cards`, `tavern-ui`) and the writing-oriented persona prose. The preset's `skill-filesystem` row exposes the skills through `customSkillDirs`. |
-
-Everything else in the preset is the official `standard` composition (file tools, search, jobs, plan mode, compaction, delegation, web, …): `tavern-standard` is that composition with the tavern group and child presets appended and the persona prose replaced.
+The install adds the declared `tavern-standard` preset — the official `standard` composition with the tavern group and four internal child presets appended and the persona prose replaced — plus the host-plane stage sidebar tab and the three tavern skills. The tavern plugins (`@ai4rpg/dsh-stage-switch`, `@ai4rpg/dsh-tavern-stages`, `@ai4rpg/dsh-ui-sidebar-stage`) arrive from npm as dependencies. [The preset README](../README.md) describes each piece and the customization points.
 
 ## Requirements
 
-- `dsh` on the `0.2.1-rc.2` line — an installed CLI, or a dsh source checkout where you run the launcher through `pnpm dsh …`. The package declares this through `engines.dsh` (`>=0.2.1-rc.2 <0.3.0-0`), which dsh checks before loading it. The profile composes `dsh-base` + `dsh-web-app`, which provide the session, tool, skill, subagent, token-meter, and session-projection services the preset's rows resolve from.
-- Node.js `^22.19 || >=24` and `pnpm` on `PATH`: `dsh plugin` forwards to pnpm (`npm install -g pnpm`, or enable corepack). The official desktop client is the exception — it installs through its own bundled pnpm and dsh, so it needs neither of them on this machine.
+- `dsh` `>=0.2.2-rc.3 <0.3.0-0` — an installed CLI, or a dsh source checkout where you run the launcher through `pnpm dsh …`. The package declares this through `engines.dsh`, which dsh checks before loading it. The profile composes `dsh-base` + `dsh-web-app`, which provide the session, tool, skill, subagent, token-meter, and session-projection services the preset's rows resolve from.
+- Node.js `>=24.9.0` and `pnpm` on `PATH`: `dsh plugin` forwards to pnpm (`npm install -g pnpm`, or enable corepack). The official desktop client is the exception — it installs through its own bundled pnpm and dsh, so it needs neither of them on this machine.
 - Network access to the npm registry — the first command pulls dsh's own dependency tree into the profile.
-- This preset package is a **local checkout, not an npm package**: the install command points at the preset folder inside the cloned content repo. The plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as its dependency. The generated patch already embeds the four persona bodies; installation needs neither an upstream checkout nor a persona source package.
+- This preset package is **not an npm package**: install it from the preset folder in a cloned content repo (below), or from a tagged GitHub release tarball. Its tavern plugins arrive from npm as dependencies. The generated patch already embeds the four persona bodies; installation needs neither an upstream checkout nor a persona source package.
 - A model provider and API key, configured in the Web UI under **Settings → Providers** before the first session.
 
 ## Install
@@ -34,11 +24,30 @@ dsh plugin --profile web add file:<absolute path to your tavern-content clone>/t
 
 From a dsh source checkout, prefix the launcher: `pnpm dsh plugin --profile web add file:<absolute path>`.
 
-- The path is absolute: `dsh plugin` refuses a relative spec, and the shell does not expand `~` after `file:`. This preset package is a local checkout, not an npm package; the plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) arrives from npm as a regular dependency. Upstream persona sources are needed only for regeneration, not installation.
+- The path is absolute: `dsh plugin` refuses a relative spec, and the shell does not expand `~` after `file:`. This installs a local checkout; for a GitHub release tarball or a Git install, see the next section. Upstream persona sources are needed only for regeneration, not installation.
 - `web` is the profile the Web UI boots; use another profile name if that is where you want the preset. A profile that does not exist yet is created from the shipped template on first use.
 - The command installs the package with pnpm, selects its bundle layer in `dsh.profile.bundles`, and resolves its dependencies into the profile. That resolution is what lets the preset's rows load (`@ai4rpg/dsh-stage-switch`, `@ai4rpg/dsh-tavern-stages`, the four `@deepseek-ai/dsh-tool-subagent` delegation rows, and the four child preset declarations) and what puts `tavern-cards-forge` (the CLI behind `tavern_forge`) where the tool finds it.
-- `@ai4rpg/dsh-tavern-stages` arrives as a dependency, so adding it by hand is unnecessary; the preset package is the single install path.
+- Adding the tavern plugins by hand is unnecessary; the preset package is the single install path.
+- When no `dsh` is on `PATH`, the repo-root `install.sh` / `install.ps1` falls back to `npx -y @deepseek-ai/dsh@0.2.2-rc.3`; if one is already installed, check `dsh --version` first, because an rc.1 host rejects this preset's `engines.dsh`.
 - To make the tavern preset the default for new sessions, set `agent-presets.default: tavern-standard` in `settings.yaml` or on the Web settings page; that is a user-side choice.
+
+### Install from a GitHub release (no clone)
+
+Every `tavern-preset-v*` tag publishes a release carrying the packed preset and its `.sha256`. Use the version you want:
+
+```sh
+dsh plugin --profile web add https://github.com/ai4rpg/tavern-content/releases/download/tavern-preset-v0.3.0/ai4rpg-dsh-tavern-preset-0.3.0.tgz
+```
+
+Verify the download against the `.sha256` asset if you need to. The install is pinned to that URL: to upgrade, run the command with the newer release URL. The desktop client accepts the same URL through its bundled `dsh`.
+
+For a Git install, point dsh at the repository and the package directory:
+
+```sh
+dsh plugin --profile web add 'git+https://github.com/ai4rpg/tavern-content.git#path:/tavern-preset'
+```
+
+The fragment does not need a commit: dsh installs the repository's default branch. Add a ref or a full commit before `&path:` to pin what runs — `#<branch>&path:/tavern-preset` or `#<40-character-commit>&path:/tavern-preset`. Only the full-commit form is updatable through dsh's plugin manager; the other Git forms install but must be reinstalled to upgrade. The release tarball is the simpler route.
 
 ## Official desktop client (Electron)
 
@@ -65,17 +74,15 @@ Reopen the client to pick the change up. The repo's `bash install.sh --profile d
 
 ### 2. The sidebar Plugins page
 
-The client's sidebar **Plugins** page manages the current profile. Its install field accepts an absolute local directory path (a `file:` prefix works too): enter the absolute path to `<clone>/tavern-preset`. This route needs no terminal and no command on PATH.
+The client's sidebar **Plugins** page manages the current profile. Its install field accepts an absolute local directory path (a `file:` prefix works too) or the Git address from “Install from a GitHub release”: enter `<clone>/tavern-preset` or that spec. This route needs no terminal and no command on PATH.
 
 ### 3. plugin_manager in a session
 
 A desktop session's agent can also install through the host's built-in `plugin_manager`, with the same local directory spec `file:<clone>/tavern-preset` as the target. **This route has a precondition: the session must run the `cordis` preset** — `plugin_manager` is switched off in both the `dsh-base` and `dsh-web-app` layers and only the `cordis` preset's sessions carry it. A `Tavern Cards` session does not, so it cannot install the preset it is running on; start a `cordis`-preset session first.
 
-### Upgrade, uninstall, and self-check
+### Self-check
 
-- Upgrade: pull the content repo (`git -C <clone> pull`), then install the same source again through any route above.
-- Uninstall: run the same command with `remove @ai4rpg/dsh-tavern-preset` instead of `add`, or `bash install.sh --profile desktop --remove`.
-- Self-check: in the desktop profile's `package.json`, `dependencies` should carry `@ai4rpg/dsh-tavern-preset` (a local directory install records a `file:` spec) and `dsh.profile.bundles` should list `@ai4rpg/dsh-tavern-preset`.
+- Self-check: in the desktop profile's `package.json`, `dependencies` should carry `@ai4rpg/dsh-tavern-preset` (a local directory install records a `file:` spec; a GitHub install records the release URL or the Git spec) and `dsh.profile.bundles` should list `@ai4rpg/dsh-tavern-preset`.
 - Activation: after quitting and reopening the client completely, a new session's preset chip offers **Tavern Cards** and the right sidebar shows the stage tab.
 - Do not manage the desktop client with `--profile web` commands, and do not edit its profile files by hand.
 
@@ -102,7 +109,7 @@ dsh web        # or: dsh --profile <name>
    - The first turn carries the `route` stage instruction; `/stage <name>` switches stages immediately from the composer (a user switch, no dialog), and the model can call `goto_stage`, whose switch is presented for your approval in a review dialog.
    - `tavern_forge` is in the model's tool list; the composer also offers `/tavern-forge` and `/tavern-pack`.
    - The `skill` tool catalog lists `tavern-design`, `tavern-cards`, and `tavern-ui`; loading one returns its body plus the base directory of its `references/` documents.
-   - The four delegation tools are present: `check-agent`, `conversion-agent`, `first-message-agent`, `schema-agent`. They bind the official `spawn` provider and select the internal `tavern-child-*` presets; a call returns an activation id, and the child's answer arrives as a completion notification. Wait for that notification before continuing with work that depends on it. Do not select a `Tavern child · *` preset for a user session.
+   - The four delegation tools are present: `check-agent`, `conversion-agent`, `first-message-agent`, `schema-agent`. They bind the official `spawn` provider and select the internal `tavern-child-*` presets; a call returns an activation receipt (the child's name), and the child's answer arrives as a completion notification. Wait for that notification before continuing with work that depends on it. Do not select a `Tavern child · *` preset for a user session.
    - The child tool surfaces are narrow: `check-agent` has read/glob/grep/skill but no `write`/`edit`/shell; only `conversion-agent` has shell tools for its validation script.
    - The stage tab appears in the right sidebar and labels the stages in Chinese (`路由`, `设计`, `规划`, `内容`, `界面`); `/stage` and `goto_stage` still take the durable English names. In a session on another preset the tab shows an empty state.
    - The `Current stage policy:` line appears in the runtime context once the session has a focused card project and the current stage's deliverable reads complete. That signal is file-based and observation-driven, so it stays silent on an empty workspace and for files written through `bash`: write project files with the tracked editor tools (`write` / `edit`).
@@ -122,13 +129,7 @@ Tavern context is per session. Sessions started on `tavern-standard` receive the
 
 ## Upgrade and uninstall
 
-**Upgrade.** Pull the checkout forward (`git pull`), then re-run the install command; the profile re-installs from the folder:
-
-```sh
-dsh plugin --profile web add file:<absolute path to your tavern-content clone>/tavern-preset
-```
-
-The checkout is the release; there are no version numbers to name. If the lockfile keeps the previously installed copy, `remove` the package and `add` it again. New sessions use the new version; a running session keeps the revision it started with.
+**Upgrade.** For a checkout install, pull the checkout forward (`git pull`) and re-run the install command. For a GitHub release install, run the same `add` command with the newer release URL. If the lockfile keeps the previously installed copy, `remove` the package and `add` it again. New sessions use the new version; a running session keeps the revision it started with. For the desktop profile, use the same commands with `--profile desktop` and the client's bundled `dsh`.
 
 **A preset is a snapshot.** `tavern-standard` is the official `standard` composition plus the tavern group and the four internal child presets, captured when the package was generated. Editing it — from the Web UI's preset surface (Creator mode authors an override of `preset-tavern-standard` by row id) or by editing the installed patch — replaces the complete `plugins` list, and a later upgrade of the plugin or the preset package does not merge into that edited copy. To pick up upstream changes after editing, reinstall the package or re-apply your edit on top of the new version.
 
@@ -150,7 +151,7 @@ This removes the preset and its dependencies from the profile. Sessions that ran
 | No `goto_stage` or `tavern_forge` in a session | The session is not on `tavern-standard`. Check the session header and pick the tavern preset for a new session. |
 | The `skill` catalog does not list the tavern skills | Reinstall the package, then check that `node_modules/@ai4rpg/dsh-tavern-preset/skills/` holds the three directories the preset's `skill-filesystem` row points at. |
 | The four delegation tools are missing | Same first check as above (the session's preset); if the session is on `tavern-standard`, the tavern group failed to mount or the `spawn` provider is absent — read the diagnostic shown at session creation. |
-| A delegation call returns at once with an activation id | Expected: dsh 0.2.1 delegation is asynchronous. The final answer arrives in the parent's completion notification; wait for it instead of reading the tool result. |
+| A delegation call returns at once with an activation receipt (the child's name) | Expected: dsh 0.2.2 delegation is asynchronous. The final answer arrives in the parent's completion notification; wait for it instead of reading the tool result. |
 | A child never picks up its persona or tools | Check that the delegation row names an existing `tavern-child-*` id in `agentPreset`; those ids are a resume contract, so do not rename them. |
 | `Current stage policy:` never appears | Expected on an empty workspace and after `bash`-only file writes: the signal needs tracked file observations. Write project files with `write` / `edit`. |
 | The wrong review-dialog language | Set `language` on the preset's `stage-switch` row (`zh` shipped, `en` for English), as described above. |

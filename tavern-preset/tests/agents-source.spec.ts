@@ -41,7 +41,7 @@ function expectGenerationFailure(sourceRoot: string | undefined, message: string
 describe('explicit, validated upstream personas', () => {
   it.each([
     ['check-agent', '6478d4f583b477bb8d9885ae0d3c0342424b9e2c'],
-    ['conversion-agent', '0c3c0c9fcf0cb35b30335210d3e5311543eee5ae'],
+    ['conversion-agent', '43c51dd45a6c6d813acf5bb5157b9c8794f66bf5'],
     ['first-message-agent', '412b0a61ea71eaa4ed47a7388336c9f387005126'],
     ['schema-agent', 'c2e394ea09014c3d51eeba7dbb27fe8edc1b0b41'],
   ])('keeps %s as an independent pinned upstream blob', (name, blob) => {

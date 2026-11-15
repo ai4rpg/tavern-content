@@ -55,6 +55,11 @@ import * as Persona from '@deepseek-ai/dsh-persona'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjection from '@deepseek-ai/dsh-session-projection'
+import SessionQuery from '@deepseek-ai/dsh-session-query'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import type {} from '@deepseek-ai/dsh-session-persistence'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -69,6 +74,8 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
+import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import StageController from '@ai4rpg/dsh-stage-switch'
@@ -100,6 +107,23 @@ export const CHILD_MOUNTED_ROW_IDS = [
 
 /** The tavern group's row id, the subtree carrying the stage machine. */
 export const TAVERN_ROW_ID = 'tavern'
+
+/**
+ * The base composition's delegation-control row, mounted alone.
+ *
+ * The full `delegation` group also carries the generic `tool-subagent`,
+ * fork, and workflow rows, which need services this harness does not mount.
+ * The control row is enough to exercise `list_agents`/`send_message` over the
+ * four tavern delegation tools, and mirrors the production preset scope.
+ * @param plugins - the declaration's plugin rows.
+ * @returns the control row, or undefined when the base stops declaring it.
+ */
+export function mountedDelegationControl(plugins: readonly Row[]): Row | undefined {
+  const group = plugins.find(row => row.id === 'delegation')
+  const children = (group?.config ?? []) as Row[]
+  const control = children.find(row => row.id === 'tool-subagent-control')
+  return control === undefined ? undefined : structuredClone(control)
+}
 
 /** The four named delegation tools the preset's tavern group declares. */
 export const DELEGATION_TOOLS = [
@@ -195,7 +219,12 @@ const JS_TAG = {
   tag: 'tag:yaml.org,2002:js',
   resolve: (value: string): JsExpr => ({ __jsExpr: value }),
   identify: isJsExpr,
-  stringify: jsExprText,
+  stringify: (item: unknown) => {
+    const text = jsExprText(item)
+    // Leading ! is a YAML tag indicator, not a plain expression scalar.
+    // Preserve the rc.3 disabled expression with the same quoting as the base.
+    return text.startsWith('!') ? JSON.stringify(text) : text
+  },
 }
 
 /** The declaration row and its child plugin rows, `!!js` nodes intact. */
@@ -415,6 +444,18 @@ export class MemoryFs extends FileSystem {
     }
   }
 
+  override async patchText(): Promise<never> {
+    throw new Error('the composition harness does not support patchText')
+  }
+
+  override async deleteFile(): Promise<never> {
+    throw new Error('the composition harness does not support deleteFile')
+  }
+
+  override async moveFile(): Promise<never> {
+    throw new Error('the composition harness does not support moveFile')
+  }
+
   override async editText(target: FsTarget, edit: FsEditRequest) {
     const before = await this.readText(target)
     if (!before.includes(edit.oldString)) throw new Error('edit has no matching text')
@@ -487,6 +528,8 @@ export interface Composition {
   /** The declaration row as mounted (already reduced to the supported rows). */
   readonly declaration: Row
   readonly fs: MemoryFs
+  /** Read-only external profile-manager seam calls, never the user's profile. */
+  readonly pluginCalls: string[]
   dispose(): Promise<void>
 }
 
@@ -501,8 +544,10 @@ const HOST_ROWS: Row[] = [
   { id: 'llm', name: '@deepseek-ai/dsh-llm' },
   { id: 'session', name: '@deepseek-ai/dsh-session' },
   { id: 'session-projection', name: '@deepseek-ai/dsh-session-projection' },
+  { id: 'session-query', name: '@deepseek-ai/dsh-session-query' },
   { id: 'system-prompt', name: '@deepseek-ai/dsh-system-prompt' },
   { id: 'tools', name: '@deepseek-ai/dsh-tools' },
+  { id: 'tool-executor-native', name: '@deepseek-ai/dsh-tool-executor-native' },
   { id: 'working-directory', name: '@deepseek-ai/dsh-working-directory', config: { defaultDirectory: tmpdir() } },
   { id: 'agents', name: '@deepseek-ai/dsh-agent' },
   { id: 'agent-loop', name: '@deepseek-ai/dsh-agent-loop', config: { agents: [] } },
@@ -511,7 +556,7 @@ const HOST_ROWS: Row[] = [
   { id: 'shell-env', name: '@deepseek-ai/dsh-shell-env', config: {} },
   { id: 'subprocess', name: TEST_SUBPROCESS, config: {} },
   { id: 'shell', name: TEST_SHELL, config: {} },
-  // dsh 0.2.1's SubagentRuntime injects `workingDirectory`; the spawn provider
+  // dsh 0.2.2's SubagentRuntime injects `workingDirectory`; the spawn provider
   // is the official local backend the tavern delegation rows bind to.
   { id: 'subagents', name: '@deepseek-ai/dsh-subagent', config: {} },
   { id: 'subagent-spawn', name: '@deepseek-ai/dsh-subagent-spawn-in-process', config: {} },
@@ -524,8 +569,10 @@ const MODULES = new Map<string, unknown>([
   ['@deepseek-ai/dsh-llm', LlmRuntime],
   ['@deepseek-ai/dsh-session', SessionStore],
   ['@deepseek-ai/dsh-session-projection', SessionProjection],
+  ['@deepseek-ai/dsh-session-query', SessionQuery],
   ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
   ['@deepseek-ai/dsh-tools', ToolRuntime],
+  ['@deepseek-ai/dsh-tool-executor-native', NativeExecutor],
   ['@deepseek-ai/dsh-working-directory', WorkingDirectory],
   ['@deepseek-ai/dsh-agent', AgentRegistry],
   ['@deepseek-ai/dsh-agent-loop', AgentLoop],
@@ -539,6 +586,9 @@ const MODULES = new Map<string, unknown>([
   [MEMORY_FS, MemoryFs],
   ['@deepseek-ai/dsh-agent-preset-registry', AgentPresets],
   ['@deepseek-ai/dsh-agent-preset', AgentPreset],
+  ['@deepseek-ai/dsh-session-persistence-jsonl', JsonlPersistence],
+  ['@deepseek-ai/dsh-sandbox-policy', SandboxPolicy],
+  ['@deepseek-ai/dsh-plugin-manager/tools', PluginManagerTools],
   // The mounted preset rows, resolved by the registry's own entry tree.
   ['@deepseek-ai/dsh-persona', Persona],
   ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem],
@@ -547,20 +597,28 @@ const MODULES = new Map<string, unknown>([
   ['@deepseek-ai/dsh-tool-skill', ToolSkill],
   ['@deepseek-ai/dsh-tool-bash', ToolBash],
   ['@deepseek-ai/dsh-tool-subagent', ToolSubagent],
+  ['@deepseek-ai/dsh-tool-subagent-control', ToolSubagentControl],
   ['@ai4rpg/dsh-stage-switch', StageController],
   ['@ai4rpg/dsh-tavern-stages', TavernStages],
   ['@ai4rpg/dsh-tavern-stages/mechanical-check', MechanicalCheck],
 ])
 
+/** Optional host-plane capabilities, never mutations of the real profile. */
+export interface CompositionOptions {
+  /** Mount the generated profile-dependent management row with a non-mutating manager seam. */
+  readonly pluginManager?: {
+    readonly profile: boolean
+    readonly mode: 'read-only' | 'danger-full-access'
+  }
+}
+
 /**
- * Boot the test composition and mount-ready runtime.
- *
- * The preset itself is NOT mounted here: mounting is per-Agent
- * ({@link startAgent}), exactly as the registry's API requires.
+ * Boot a real Loader host; mount each selecting Agent through startAgent.
  * @param files - fixture files, keyed by path relative to the temporary root.
- * @returns the live composition; the caller disposes it.
+ * @param options - extra host-plane rows needed for the focused policy tests.
+ * @returns the live composition, including test-only JSONL storage; the caller disposes it.
  */
-export async function loadComposition(files: Record<string, string> = {}): Promise<Composition> {
+export async function loadComposition(files: Record<string, string> = {}, options: CompositionOptions = {}): Promise<Composition> {
   const root = await mkdtemp(join(tmpdir(), 'tavern-preset-composition-'))
   // The generated skill-filesystem row resolves this package's own
   // package.json through `createRequire(baseUrl)`; baseUrl is the composition
@@ -571,9 +629,27 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
   await symlink(repoRoot, join(root, 'node_modules', '@ai4rpg', 'dsh-tavern-preset'), process.platform === 'win32' ? 'junction' : 'dir')
 
   const { row, plugins } = readPatchDeclaration()
+  const mounted = mountedPluginRows(plugins)
+  // The production base mounts the delegation group beside this preset; the
+  // harness mounts only its control row so list_agents has the same scoped
+  // tool the real profile exposes.
+  const delegationControl = mountedDelegationControl(plugins)
+  if (delegationControl !== undefined) mounted.push(delegationControl)
+  const hostRows: Row[] = [...HOST_ROWS, {
+    id: 'session-persistence', name: '@deepseek-ai/dsh-session-persistence-jsonl',
+    config: { root: join(root, 'sessions'), compression: 'none' },
+  }]
+  const modules = new Map(MODULES)
+  const pluginCalls: string[] = []
+  if (options.pluginManager !== undefined) {
+    const managerRow = plugins.find(entry => entry.id === 'tool-plugin-manager')
+    if (managerRow === undefined) throw new Error('the generated preset no longer declares tool-plugin-manager')
+    mounted.push(structuredClone(managerRow))
+    hostRows.push({ id: 'sandbox-policy', name: '@deepseek-ai/dsh-sandbox-policy', config: { mode: options.pluginManager.mode } })
+  }
   const declaration: Row = {
     ...row,
-    config: { ...row.config, plugins: mountedPluginRows(plugins) },
+    config: { ...row.config, plugins: mounted },
   }
   // Every preset row travels through the Loader so the registry can resolve
   // `agentPreset: tavern-child-*`; child declarations carry a reduced tool set
@@ -584,13 +660,24 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
   const configPath = join(root, 'cordis.yml')
   // Re-emitted through the same `!!js` tag, so the Loader evaluates the
   // expression instead of receiving its source text.
-  await writeFile(configPath, stringify([...HOST_ROWS, ...declarations], {
+  await writeFile(configPath, stringify([...hostRows, ...declarations], {
     customTags: [JS_TAG],
     aliasDuplicateObjects: false,
     lineWidth: 0,
   }))
 
   const ctx = new Context()
+  if (options.pluginManager !== undefined) {
+    // app-boot supplies profileContext on the root before Loader activation;
+    // reproduce that visibility rather than exposing it from a sibling row.
+    if (options.pluginManager.profile) ctx.provide('profileContext', {
+      name: 'test-only', dir: root, patchPath: join(root, 'profile.patch.yml'), installAnchor: root,
+      cwd: root, home: root, startedBundles: [], overlays: [], telemetryDisabledEnv: undefined,
+    })
+    ctx.provide('pluginManager', {
+      async listPlugins() { pluginCalls.push('list_plugins'); return [] },
+    })
+  }
   ctx.baseUrl = pathToFileURL(root).href + '/'
   await ctx.plugin(Loader, {})
   ctx.loader.builtins.include = Include
@@ -598,7 +685,7 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
   ctx.loader.internal = {
     version: 'v2',
     async import(specifier: string) {
-      const module = MODULES.get(specifier)
+      const module = modules.get(specifier)
       if (module === undefined) throw new Error(`unexpected Loader import: ${specifier}`)
       return module
     },
@@ -626,6 +713,7 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
     root,
     declaration,
     fs,
+    pluginCalls,
     dispose: async () => {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
@@ -637,6 +725,8 @@ export async function loadComposition(files: Record<string, string> = {}): Promi
 export interface StartedAgent {
   readonly agent: Agent
   readonly presetId: string
+  /** Owned teardown capability; `ctx.dispose()` also releases it. */
+  dispose(): Promise<void>
 }
 
 /**
@@ -660,7 +750,28 @@ export async function startAgent(ctx: Context, id: string, cwd: string, selected
       presetId = (await ctx.agentPresets.mount(agentCtx, selectedPreset)).id
     },
   })
-  return { agent: handle.agent, presetId }
+  return { agent: handle.agent, presetId, dispose: () => handle.dispose() }
+}
+
+/**
+ * Cold-resume a persisted agent and remount its preset in the fresh scope.
+ * The session header carries the preset id, so a resumed agent recovers the
+ * same composition a session controller would select.
+ * @param ctx - the composition's context.
+ * @param id - persisted session identity.
+ * @param selectedPreset - preset id to mount; defaults to the tavern preset.
+ * @returns the resumed agent and its owned teardown capability.
+ */
+export async function resumeAgent(ctx: Context, id: string, selectedPreset = PRESET_ID): Promise<StartedAgent> {
+  let presetId = ''
+  const handle = await ctx.agents.resume({
+    resumeSessionId: SessionId(id),
+    agentOptions: { provider: 'mock', model: 'mock' },
+    setup: async (agentCtx: Context) => {
+      presetId = (await ctx.agentPresets.mount(agentCtx, selectedPreset)).id
+    },
+  })
+  return { agent: handle.agent, presetId, dispose: () => handle.dispose() }
 }
 
 /** Poll a synchronous probe until it answers, failing loud on the deadline. */
@@ -680,7 +791,7 @@ export async function waitFor<T>(label: string, probe: () => T | undefined, time
  * @param ctx - the composition's context.
  */
 export function waitForSpawnProvider(ctx: Context): Promise<string> {
-  return waitFor('the spawn subagent provider', () => ctx.subagents.list().includes('spawn') ? 'spawn' : undefined)
+  return waitFor('the spawn subagent provider', () => ctx.subagents.getProvider('spawn') === undefined ? undefined : 'spawn')
 }
 
 /**
@@ -704,11 +815,9 @@ export async function startChildActivation(
   return await ctx.subagents.startActivation({
     provider: 'spawn',
     label: agentPreset,
-    request: {
-      parent,
-      prompt: [{ type: 'text', text: prompt }],
-      agentPreset,
-    },
+    parent,
+    prompt: [{ type: 'text', text: prompt }],
+    agentPreset,
     signal,
     delivery: 'caller',
   })

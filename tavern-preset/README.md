@@ -21,11 +21,11 @@ Tavern context is **per-session**: the full workflow loads only in sessions star
 dsh plugin --profile <name> add file:<absolute path to this checkout>
 ```
 
-This package ships as a local checkout, not an npm package; the plugin it pulls in (`@ai4rpg/dsh-tavern-stages`) does come from npm. Point the command at the folder on disk; the path must be absolute (`dsh plugin` refuses a relative spec), and the install target is this checkout's own folder.
+This package is not an npm package: install it from a local checkout (above) or from a tagged GitHub release tarball. The plugins it pulls in (`@ai4rpg/dsh-stage-switch`, `@ai4rpg/dsh-tavern-stages`, `@ai4rpg/dsh-ui-sidebar-stage`) do come from npm. Point the checkout command at the folder on disk; the path must be absolute (`dsh plugin` refuses a relative spec), and the install target is this checkout's own folder.
 
-The official desktop client (Electron) uses its own `desktop` profile, which a standalone `dsh` cannot manage. Install there from inside the app: run the command above with the client's bundled `dsh` (the **Manage dsh command…** menu item registers it on `PATH`), or enter the same file path on the sidebar **Plugins** page. Alternatively run `bash install.sh --profile desktop` in the checkout; the script prepares it and runs that bundled `dsh` for you.
+The official desktop client uses its own `desktop` profile: install from inside the app with the bundled `dsh`, or run `bash install.sh --profile desktop`; the guide covers the three routes.
 
-**The full recipe is in `docs/install-guide.md`**: command-line profiles under “Install” and “Verify”, the desktop client under “Official desktop client” (one-command script, `plugin_manager` fallback, troubleshooting).
+**Full recipe:** `docs/install-guide.md` — command-line, desktop, GitHub release, verify, upgrade, and troubleshooting.
 
 ## What the preset contains
 
@@ -41,11 +41,11 @@ The patch inserts a declaration whose `plugins` list **is** the official `standa
 
 For the checking workflow and manual fallback, see the skill's [composition reference](skills/tavern-cards/references/composition.md#自动检查与手动兜底). This integration requires the plugin's `mechanical-check` entry; a local checkout build alone does not update an installed profile.
 
-The group's delegation rows and child presets are generated together from validated upstream `agents/*.md`, so their bindings and persona content share one input. Every row binds the official `spawn` provider (`provider: spawn`) and names its child preset (`agentPreset: tavern-child-<agent>`); `persona` and `toolFilter` stay off the row, because 0.2.1 rejects both — identity and tools live in the child preset.
+The group's delegation rows and child presets are generated together from validated upstream `agents/*.md`, so their bindings and persona content share one input. Every row binds the official `spawn` provider (`provider: spawn`) and names its child preset (`agentPreset: tavern-child-<agent>`); `persona` and `toolFilter` stay off the row, because 0.2.2 rejects both — identity and tools live in the child preset.
 
 **The four `Tavern child · *` presets are internal.** They appear in the preset roster because the host has no hidden flag, but they exist only so the delegation rows can compose a child; do not select one for a user session. The `check-agent` child is read-only (`tool-fs` with `write` and `edit` off); only the `conversion-agent` child has shell tools (`bash` / `pwsh`) for its validation script.
 
-**Delegation is asynchronous.** A delegation tool returns `{ kind: 'activation', subagentId }` immediately; the child's final answer arrives later as the parent's completion notification. Steps that depend on the result wait for that notification instead of reading the tool's return value. Child presets carry the `skill` tool, so a child that needs the tavern reference documents loads them on demand; the returned `resourceBase.path` is the directory base for `references/`.
+**Delegation is asynchronous.** A delegation tool returns `{ kind: 'activation', name }` (the child's name) immediately; the child's final answer arrives later as the parent's completion notification. Steps that depend on the result wait for that notification instead of reading the tool's return value. Child presets carry the `skill` tool, so a child that needs the tavern reference documents loads them on demand; the returned `resourceBase.path` is the directory base for `references/`.
 
 The patch also activates the stage sidebar tab on the host plane. The tab cannot ride the preset: the browser module roster only scans the main Loader tree, and preset rows live in a separate tree. It is passive UI (no prompt section, no tool).
 
@@ -79,12 +79,12 @@ Remove or disable the four `tool-subagent-*` rows in the declared `tavern` group
 
 ## Requirements
 
-- dsh `0.2.1-rc.2` line (`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` for the Web profile); the package declares this through `engines.dsh` (`>=0.2.1-rc.2 <0.3.0-0`).
-- Node `^22.19 || >=24` (the `!!js` skill-dir expression uses `process.getBuiltinModule`).
+- dsh `>=0.2.2-rc.3 <0.3.0-0` (`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` for the Web profile), declared through `engines.dsh`.
+- Node `>=24.9.0`, matching the target dsh runtime minimum.
 
 ## Develop
 
-Regeneration and skill synchronization require `TAVERN_CARDS_ROOT` pointing at an approved [tavern-cards main snapshot](https://github.com/ai4rpg/tavern-cards); do not use an unstable feature-branch worktree. The current source baseline is `b90b2ce741a999b2a2729cf0fe842129e408b459`. No particular checkout location is assumed. Ordinary tests use explicit test fixtures, and installation uses the committed outputs; neither needs the upstream checkout.
+Regeneration and skill synchronization require `TAVERN_CARDS_ROOT` pointing at an approved [tavern-cards main snapshot](https://github.com/ai4rpg/tavern-cards); do not use an unstable feature-branch worktree. The current source baseline is `c8458faa3d882faf6636f24b67dec16dbff8571a`. No particular checkout location is assumed. Ordinary tests use explicit test fixtures, and installation uses the committed outputs; neither needs the upstream checkout.
 
 ```sh
 export TAVERN_CARDS_ROOT="<approved-main-snapshot>"

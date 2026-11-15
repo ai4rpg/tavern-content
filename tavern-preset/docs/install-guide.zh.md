@@ -6,24 +6,14 @@
 
 ## 本包装了什么
 
-| 组成 | 说明 |
-|---|---|
-| `preset-tavern-standard` | 预设声明：一行 `@deepseek-ai/dsh-agent-preset`，`config.id: tavern-standard`、roster `order: 5`、`Tavern Cards` 展示元数据（单语；语言在生成包时确定）。会话在预设选择器里选用它。 |
-| 四个 `preset-tavern-child-*` 声明 | 内部子预设，`order: 6..9`，每个委派代理一个。每个子预设把该代理正文作为 persona，并只带收窄后的工具集。它们只应由委派行的 `agentPreset` 选中，不要给用户会话选用。 |
-| `ui-sidebar-stage` 行 | 阶段侧边栏标签页，挂在宿主层。它是被动 UI：不注入提示词、不注册工具。 |
-| `@ai4rpg/dsh-tavern-stages`（依赖） | 插件：`dsh-stage-switch` 的阶段配置、带焦点追踪与完成判定的 `tavern_forge` 项目工具，以及原生机械检查集成。 |
-| `@ai4rpg/dsh-stage-switch`（依赖） | 阶段机（`route → design → planning → content → ui`）、`goto_stage`、`/stage` 命令与评审弹窗。 |
-| `@ai4rpg/dsh-ui-sidebar-stage`（依赖） | 侧边栏标签页背后的浏览器模块。 |
-| `skills/` 与 `persona.yml`（本包自带） | 三个 tavern 技能体（`tavern-design`、`tavern-cards`、`tavern-ui`）与写作向 persona 散文。预设的 `skill-filesystem` 行通过 `customSkillDirs` 暴露这些技能。 |
-
-预设里其余部分就是官方 `standard` 组合（文件工具、搜索、jobs、plan mode、compaction、delegation、web 等）：`tavern-standard` 等于那份组合追加 tavern 组与子预设、并替换 persona 散文。
+安装会加入声明式 `tavern-standard` 预设（官方 `standard` 组合追加 tavern 组与四个内部子预设，并替换 persona 散文）、host 层阶段侧边栏 tab，以及三个 tavern 技能。tavern 插件（`@ai4rpg/dsh-stage-switch`、`@ai4rpg/dsh-tavern-stages`、`@ai4rpg/dsh-ui-sidebar-stage`）作为依赖从 npm 到达。各部分的说明与定制入口见[预设包 README](../README.zh.md)。
 
 ## 前置要求
 
-- `dsh` 在 `0.2.1-rc.2` 线上——已安装的 CLI，或一个 dsh 源码检出（在检出里用 `pnpm dsh …` 调启动器）。本包通过 `engines.dsh`（`>=0.2.1-rc.2 <0.3.0-0`）声明这一点，dsh 在加载前会检查。profile 组合 `dsh-base` + `dsh-web-app`，预设各行解析所需的 session、工具、技能、子代理、token-meter 与 `session-projection` 服务由它们提供。
-- Node.js `^22.19 || >=24`，且 `pnpm` 在 `PATH` 上：`dsh plugin` 会转发给 pnpm（`npm install -g pnpm`，或启用 corepack）。官方桌面端例外——它用应用自带的 pnpm 与 dsh 安装，本机两样都可以没有。
+- `dsh` `>=0.2.2-rc.3 <0.3.0-0`——已安装的 CLI，或一个 dsh 源码检出（在检出里用 `pnpm dsh …` 调启动器）。本包通过 `engines.dsh` 声明该范围，dsh 在加载前会检查。profile 组合 `dsh-base` + `dsh-web-app`，预设各行解析所需的 session、工具、技能、子代理、token-meter 与 `session-projection` 服务由它们提供。
+- Node.js `>=24.9.0`，且 `pnpm` 在 `PATH` 上：`dsh plugin` 会转发给 pnpm（`npm install -g pnpm`，或启用 corepack）。官方桌面端例外——它用应用自带的 pnpm 与 dsh 安装，本机两样都可以没有。
 - 能访问 npm registry——首条命令会把 dsh 自己的依赖树拉进 profile。
-- 本预设包是**本地检出，不是 npm 包**：安装命令指向克隆的内容仓里的预设文件夹。它拉进的插件（`@ai4rpg/dsh-tavern-stages`）从 npm 作为依赖到达。生成补丁已经内嵌四份人格正文；安装不需要上游检出或人格源包。
+- 本预设包**不是 npm 包**：可以从克隆的内容仓里的预设文件夹安装（见下），也可以装某个 tag 的 GitHub release tarball。它的 tavern 插件作为依赖从 npm 到达。生成补丁已经内嵌四份人格正文；安装不需要上游检出或人格源包。
 - 一个模型 provider 与 API key，在 Web UI 的 **Settings → Providers** 里配置好再开第一个会话。
 
 ## 安装
@@ -34,11 +24,30 @@ dsh plugin --profile web add file:<tavern-content 克隆里 tavern-preset 的绝
 
 在 dsh 源码检出里，给启动器加前缀：`pnpm dsh plugin --profile web add file:<绝对路径>`。
 
-- 路径必须是绝对路径：`dsh plugin` 拒绝相对 spec，shell 也不会在 `file:` 后展开 `~`。本预设包是本地检出，不是 npm 包；它拉进的插件（`@ai4rpg/dsh-tavern-stages`）作为普通依赖从 npm 到达。上游人格源只供重新生成使用，不是安装前置条件。
+- 路径必须是绝对路径：`dsh plugin` 拒绝相对 spec，shell 也不会在 `file:` 后展开 `~`。这条路线装的是本地检出；GitHub release tarball 或 Git 安装见下一节。上游人格源只供重新生成使用，不是安装前置条件。
 - `web` 是 Web UI 启动的 profile；想装到别处就把名字换掉。尚不存在的 profile 会在首次使用时按随附模板创建。
 - 该命令用 pnpm 安装本包、把它选进 `dsh.profile.bundles` 的 bundle 层，并把它的依赖解析进 profile。正是这份解析让预设的各行得以加载（`@ai4rpg/dsh-stage-switch`、`@ai4rpg/dsh-tavern-stages`、四个 `@deepseek-ai/dsh-tool-subagent` 委派行与四个子预设声明），也让 `tavern_forge` 背后的 `tavern-cards-forge` 落在工具找得到的位置。
-- `@ai4rpg/dsh-tavern-stages` 作为依赖到达，无需手动 add；本包是唯一安装路径。
+- tavern 插件无需手动 add；本包是唯一安装路径。
+- `PATH` 上没有 `dsh` 时，仓库根的 `install.sh` / `install.ps1` 回退到 `npx -y @deepseek-ai/dsh@0.2.2-rc.3`；若本机已装 `dsh`，先核对 `dsh --version`——rc.1 宿主会被本预设的 `engines.dsh` 拒绝。
 - 想让新会话默认用 tavern 预设，在 `settings.yaml` 或 Web 设置页里设 `agent-presets.default: tavern-standard`；这是用户侧选择。
+
+### 从 GitHub release 安装（不用克隆）
+
+每个 `tavern-preset-v*` tag 都会生成一个 release，附带打包好的预设与 `.sha256`。把版本换成你要的：
+
+```sh
+dsh plugin --profile web add https://github.com/ai4rpg/tavern-content/releases/download/tavern-preset-v0.3.0/ai4rpg-dsh-tavern-preset-0.3.0.tgz
+```
+
+需要的话先对照 `.sha256` 资产校验下载。安装会钉在这个 URL 上：升级时用新 release 的 URL 再执行一次。桌面端可以用自带 `dsh` 走同一个 URL。
+
+Git 安装则指向仓库与包目录：
+
+```sh
+dsh plugin --profile web add 'git+https://github.com/ai4rpg/tavern-content.git#path:/tavern-preset'
+```
+
+fragment 不必带 commit：dsh 会装仓库的默认分支。想固定实际运行的内容，可在 `&path:` 前加 ref 或完整 commit——`#<branch>&path:/tavern-preset` 或 `#<40 位 commit>&path:/tavern-preset`。只有完整 commit 形式能被 dsh 的插件管理器跟踪更新；其它 Git 形式能装，但升级要重装。更省事的是 release tarball。
 
 ## 官方桌面端（Electron 客户端）
 
@@ -65,17 +74,15 @@ dsh plugin --profile desktop add file:<tavern-content 克隆里 tavern-preset �
 
 ### 2. 侧边栏 Plugins 页
 
-桌面端右侧栏的 **Plugins** 页管的就是当前 profile。安装框接受本地目录的绝对路径（也可以写 `file:` 前缀），把 `<克隆>/tavern-preset` 的绝对路径填进去即可。这条路不需要终端，也不需要任何 PATH 上的命令。
+桌面端右侧栏的 **Plugins** 页管的就是当前 profile。安装框接受本地目录的绝对路径（也可以写 `file:` 前缀）或「从 GitHub release 安装」里的 Git 地址：填 `<克隆>/tavern-preset` 或那个 spec。这条路不需要终端，也不需要任何 PATH 上的命令。
 
 ### 3. 会话里的 plugin_manager
 
 也可以让桌面端会话里的 agent 用宿主内置的 `plugin_manager` 装，target 同样是本地目录规格 `file:<克隆>/tavern-preset`。**这条路有前提：会话要用 `cordis` 预设**——`plugin_manager` 在 `dsh-base` 与 `dsh-web-app` 层都是关闭的，只有 `cordis` 预设的会话带它；`Tavern Cards` 会话不带，所以它不能自己给自己装。已经是 `Tavern Cards` 会话时，先新建一个 `cordis` 预设的会话再操作。
 
-### 升级、卸载与自检
+### 自检
 
-- 升级：把内容仓拉到最新（`git -C <克隆> pull`），再用上面的任意一条路重装一次同一个来源。
-- 卸载：把 `add` 换成 `remove @ai4rpg/dsh-tavern-preset` 再执行一次；或 `bash install.sh --profile desktop --remove`。
-- 自检：桌面 profile 的 `package.json` 里，`dependencies` 应有 `@ai4rpg/dsh-tavern-preset`（本地目录装出来的是 `file:` 规格），`dsh.profile.bundles` 应列出 `@ai4rpg/dsh-tavern-preset`。
+- 自检：桌面 profile 的 `package.json` 里，`dependencies` 应有 `@ai4rpg/dsh-tavern-preset`（本地目录装出来的是 `file:` 规格；GitHub 安装记录 release URL 或 Git 规格），`dsh.profile.bundles` 应列出 `@ai4rpg/dsh-tavern-preset`。
 - 生效：完全退出并重开桌面端后，新会话的预设选择器里出现 **Tavern Cards**，右侧栏出现阶段标签页。
 - 不要用 `--profile web` 的命令去改桌面端，也不要手工改桌面 profile 的文件。
 
@@ -101,7 +108,7 @@ dsh web        # 或：dsh --profile <名称>
    - 首轮携带 `route` 阶段指令；在输入框用 `/stage <名称>` 立即切换阶段（用户切换，无弹窗），模型可调用 `goto_stage`，其切换会以评审弹窗请你批准。
    - `tavern_forge` 在模型的工具列表里；输入框还提供 `/tavern-forge` 与 `/tavern-pack`。
    - `skill` 工具目录列出 `tavern-design`、`tavern-cards`、`tavern-ui`；加载其一返回技能正文与其 `references/` 文档的基目录。
-   - 四个委派工具在场：`check-agent`、`conversion-agent`、`first-message-agent`、`schema-agent`。它们绑定官方 `spawn` provider 并选中内部 `tavern-child-*` 子预设；调用立即返回 activation id，子代理的答案以完成通知送达。依赖结果的后续工作等通知到达后再继续。不要给用户会话选用 `Tavern child · *` 预设。
+   - 四个委派工具在场：`check-agent`、`conversion-agent`、`first-message-agent`、`schema-agent`。它们绑定官方 `spawn` provider 并选中内部 `tavern-child-*` 子预设；调用立即返回 activation receipt（子代理名称），子代理的答案以完成通知送达。依赖结果的后续工作等通知到达后再继续。不要给用户会话选用 `Tavern child · *` 预设。
    - 子代理的工具面是收窄的：`check-agent` 有 read/glob/grep/skill，但没有 `write`/`edit` 与 shell；只有 `conversion-agent` 带 shell 工具供其校验脚本使用。
    - 右侧栏出现阶段标签页，阶段显示中文别名（`路由`、`设计`、`规划`、`内容`、`界面`）；`/stage` 与 `goto_stage` 仍使用持久化的英文名。在其它预设的会话里它显示空态。
    - 当会话有了聚焦的卡牌项目、且当前阶段的交付物读作完成时，运行时上下文里出现 `Current stage policy:` 一行。该信号基于文件、由观察驱动：空 workspace 不渲染，走 `bash` 的文件写入也绕过该信号；项目文件请用受追踪的编辑工具（`write` / `edit`）写。
@@ -121,13 +128,7 @@ tavern 上下文按会话生效。从 `tavern-standard` 启动的会话会拿到
 
 ## 升级与卸载
 
-**升级。** 把检出推进（`git pull`）后重跑安装命令；profile 会从文件夹重装：
-
-```sh
-dsh plugin --profile web add file:<tavern-content 克隆里 tavern-preset 的绝对路径>
-```
-
-检出就是版本，没有版本号可写。若 lockfile 保留了先前装的副本，先 `remove` 再 `add`。新会话使用新版本；运行中的会话保留它启动时的 revision。
+**升级。** 本地检出把检出推进（`git pull`）后重跑安装命令；GitHub release 安装则用新版本的 URL 再跑一次 `add`。若 lockfile 保留了先前装的副本，先 `remove` 再 `add`。新会话使用新版本；运行中的会话保留它启动时的 revision。桌面端用同样的命令，把 `--profile web` 换成 `--profile desktop`，并使用客户端自带的 `dsh`。
 
 **预设是快照。** `tavern-standard` 是官方 `standard` 组合追加 tavern 组与四个内部子预设，在生成该包时定稿。改动它（无论走 Web UI 的预设入口，Creator mode 按行 id 覆盖 `preset-tavern-standard`，还是编辑已安装的 patch）都会**整体替换** `plugins` 列表；之后升级插件或预设包都影响不到那份改过的副本。改过之后想拿到上游变更，请重装本包，或在新版本之上重新施加你的改动。
 
@@ -149,7 +150,7 @@ dsh plugin --profile web remove @ai4rpg/dsh-tavern-preset
 | 会话里没有 `goto_stage` 或 `tavern_forge` | 该会话不在 `tavern-standard` 上。看会话头，新建会话时选 tavern 预设。 |
 | `skill` 目录里没有 tavern 技能 | 重装本包，再确认 `node_modules/@ai4rpg/dsh-tavern-preset/skills/` 下有预设 `skill-filesystem` 行指向的那三个目录。 |
 | 四个委派工具缺失 | 同上，先查会话的预设；若确实在 `tavern-standard` 上，说明 tavern 组挂载失败或 `spawn` provider 缺失；读会话创建时给出的诊断。 |
-| 委派调用立刻返回一个 activation id | 正常：dsh 0.2.1 的委派是异步的。最终答案在父级的完成通知里；等通知，不要从工具结果里取答案。 |
+| 委派调用立刻返回一个 activation receipt（子代理名称） | 正常：dsh 0.2.2 的委派是异步的。最终答案在父级的完成通知里；等通知，不要从工具结果里取答案。 |
 | 子代理没有带上人格或工具 | 检查委派行的 `agentPreset` 是否指向存在的 `tavern-child-*` id；这些 id 是 resume 契约，不要改名。 |
 | `Current stage policy:` 始终不出现 | 空 workspace 与只用 `bash` 写文件时期望如此：该信号需要受追踪的文件观察。项目文件请用 `write` / `edit`。 |
 | 评审弹窗语言不对 | 按上文改预设 `stage-switch` 行的 `language`（随包为 `zh`，英文用 `en`）。 |

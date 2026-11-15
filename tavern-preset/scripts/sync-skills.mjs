@@ -19,10 +19,11 @@
 //                                  tavernForgeToCall turns every invocation into
 //                                  the `tavern_forge({ command, args })` form
 //   3. removeMisleadingScriptSentences — drop "scripts live here" lines
-//   4. rewriteDelegationSemantics — dsh 0.2.1 delegation is asynchronous:
-//                                  document the activation id + completion
-//                                  notification contract in the 子代理 sections
-import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+//   4. rewriteDelegationSemantics — dsh 0.2.2 delegation is asynchronous:
+//                                  state the activation receipt + completion
+//                                  notification facts in the 子代理 sections
+//                                  only; conversion wording stays upstream
+import { chmod, cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -252,23 +253,21 @@ async function removeMisleadingScriptSentences() {
 }
 
 /**
- * dsh 0.2.1 delegation is asynchronous: a tool call returns an activation id
- * and the child's final answer arrives as the parent's completion
- * notification. The upstream skill bodies predate that contract, so the
- * model-facing 子代理 sections and the serial-conversion rule are rewritten
- * here. Anchors that upstream has reworded warn; the guard after the rewrite
- * fails the sync if the async wording is absent, so this cannot silently
+ * dsh 0.2.2 delegation is asynchronous: a tool call returns an activation
+ * receipt (the child's name) and the child's final answer arrives as the
+ * parent's completion notification. The upstream 子代理 sections are
+ * host-neutral, so they are rewritten here with those facts and dsh's prompt
+ * parameter name. No waiting instruction is added. The conversion flow keeps
+ * the upstream wording verbatim. Anchors that upstream has reworded warn; the
+ * guard fails the sync if any replacement is absent, so this cannot silently
  * regress to "use the tool's return value".
  */
 async function rewriteDelegationSemantics() {
-  const oldGuide = '调用时由 Agent harness 注入任务，主代理在 task 字符串里携带下表「输入」一列的参数，并按下表「输出」一列处理返回。'
-  const newGuide = '调用委派工具后立即返回 activation id；子代理的最终结果以完成通知送达。主代理在 prompt 参数里携带下表「输入」一列的参数；依赖结果才能继续的步骤，必须等完成通知到达后再继续，不要从工具返回值里取结果。'
-  const oldSerial = '- **串行处理**：必须根据子代理返回的实际位置分配下一个任务'
-  const newSerial = '- **串行处理**：等完成通知到达后，根据子代理报告的实际位置分配下一个任务'
+  const oldGuide = '调用时由 Agent harness 注入任务，主代理在 task 字符串里携带下表「输入」一列的参数，并按下表「输出」一列所述的产物衔接后续步骤。'
+  const newGuide = '调用委派工具后立即返回 activation receipt（子代理名称）；子代理的最终结果以完成通知送达。主代理在 prompt 参数里携带下表「输入」一列的参数；依赖结果的步骤以完成通知送达的结果为准，不从工具返回值里取结果。'
   const rewrites = [
     { file: join(skillsRoot, 'tavern-design', 'SKILL.md'), from: oldGuide, to: newGuide },
     { file: join(skillsRoot, 'tavern-cards', 'SKILL.md'), from: oldGuide, to: newGuide },
-    { file: join(skillsRoot, 'tavern-design', 'references', 'conversion', 'outline.md'), from: oldSerial, to: newSerial },
   ]
   for (const { file, from, to } of rewrites) {
     if (!existsSync(file)) continue
@@ -279,9 +278,9 @@ async function rewriteDelegationSemantics() {
     }
     await writeFile(file, text.replaceAll(from, to))
   }
-  for (const file of [rewrites[0].file, rewrites[1].file, rewrites[2].file]) {
+  for (const { file, to } of rewrites) {
     if (!existsSync(file)) continue
-    if (!(await readFile(file, 'utf8')).includes('等完成通知到达')) {
+    if (!(await readFile(file, 'utf8')).includes(to)) {
       console.error(`error: async delegation wording missing in ${file}`)
       process.exitCode = 1
     }
@@ -393,6 +392,9 @@ await rewriteDelegationSemantics()
 // the native DSH hook and the reviewer's fixed read-only tool.
 const checkerFile = join(skillsRoot, 'tavern-cards', 'scripts', 'mechanical-check.mjs')
 await writeFile(checkerFile, mechanicalCheckModule(await readFile(checkerFile, 'utf8')))
+// The upstream checkout may carry an executable bit; the synced tree is data
+// (imported by path, never executed directly), so keep one deterministic mode.
+await chmod(checkerFile, 0o644)
 for (const relative of ['SKILL.md', 'references/composition.md', 'references/contents-creation/first-message.md']) {
   const file = join(skillsRoot, 'tavern-cards', relative)
   await writeFile(file, mechanicalCheckDocs(relative, await readFile(file, 'utf8')))
@@ -401,4 +403,4 @@ await writeFile(join(skillsRoot, 'LICENSE.md'), skillsLicenseMd)
 const lintViolations = await lintToolCallExamples()
 for (const violation of lintViolations) console.error('error: ' + violation)
 if (lintViolations.length > 0) process.exitCode = 1
-console.log('synced skills as DSH edition: forge invocations -> tavern_forge({ command, args }); delegation -> activation id + completion notification')
+console.log('synced skills as DSH edition: forge invocations -> tavern_forge({ command, args }); delegation -> activation receipt (name) + completion notification')

@@ -161,7 +161,7 @@ if ($env:DSH_CMD) {
   $DshArgs = @()
 } else {
   $DshExe = 'npx'
-  $DshArgs = @('-y', '@deepseek-ai/dsh')
+  $DshArgs = @('-y', '@deepseek-ai/dsh@0.2.2-rc.3')
 }
 $DshText = (@($DshExe) + $DshArgs) -join ' '
 
@@ -258,7 +258,7 @@ if ($IsDesktop) {
   $hasNode = Get-Command node -ErrorAction SilentlyContinue
   $hasPnpm = Get-Command pnpm -ErrorAction SilentlyContinue
   if (-not $hasNode -and -not $DryRun) {
-    Fatal '缺少 node —— 预设包要求 node ^22.19 || >=24（https://nodejs.org）'
+    Fatal '缺少 node —— 预设包要求 node >=24.9.0（https://nodejs.org）'
   }
   if (-not $hasPnpm -and -not $DryRun) {
     Fatal '缺少 pnpm —— dsh plugin 转发到 pnpm 安装（npm install -g pnpm，或启用 corepack）'
@@ -266,7 +266,7 @@ if ($IsDesktop) {
   if ($hasNode) {
     $nodeVersion = ([string](& node --version)).TrimStart('v').Trim()
     $nodeMajor = [int]($nodeVersion.Split('.')[0])
-    if ($nodeMajor -lt 22) { Say "  ⚠ node $nodeMajor 偏旧：预设包要求 ^22.19 || >=24，继续但可能安装失败" }
+    if ($nodeMajor -lt 24) { Say "  ⚠ node $nodeMajor 偏旧：预设包要求 >=24.9.0，继续但可能安装失败" }
   }
   if ($DryRun) {
     Say "  [dry-run] 正式运行会检查 node / pnpm；将使用: $DshText"

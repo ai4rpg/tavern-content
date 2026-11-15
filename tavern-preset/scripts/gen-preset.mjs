@@ -4,7 +4,7 @@
  * `tavern-standard` agent preset.
  *
  * The patch is derived, not hand-written: the preset's `plugins` list IS the
- * official `standard` composition with exactly three edits, so a base upgrade
+ * official `standard` composition with the edits below, so a base upgrade
  * moves this preset with it.
  *
  *   1. `persona.yml` replaces the base's persona row (prose override; the
@@ -21,7 +21,14 @@
  *      the personas they delegate to;
  *   4. one child preset per agent is appended: `tavern-child-<agent>` carries
  *      the agent body as its persona prefix and a narrow tool set derived from
- *      the same base rows (no stage, delegation, or planning rows).
+ *      the same base rows (no stage, delegation, or planning rows);
+ *   5. the rc.3 base's `tool-office` row is deleted (D5): this preset does not
+ *      provide or promise Office/PDF document features;
+ *   6. the web-app bundle's `skill-office` row is disabled: the Office skills
+ *      are host-plane rows outside the preset composition, so only an
+ *      id-targeted disable keeps them out of a session using this preset.
+ *      `office-kit` is left alone — the document preview sidebar renders
+ *      Office files through it.
  *
  * A second inserted row activates the stage sidebar tab on the host plane.
  * The tab cannot ride the preset: the browser module roster only scans the
@@ -97,7 +104,7 @@ const CHILD_ROW_DELTAS = {
   // The conversion body runs `node scripts/validate-conversion-outline.mjs`.
   'conversion-agent': { extraRows: ['tool-bash', 'tool-pwsh'] },
   // The reviewer reports; it never edits the manuscript.
-  'check-agent': { rowConfig: { 'tool-fs': { write: false, edit: false } } },
+  'check-agent': { rowConfig: { 'tool-fs': { write: false, edit: false, applyPatch: false } } },
 }
 const childPresetId = agent => `${CHILD_PRESET_PREFIX}-${agent.name}`
 
@@ -149,7 +156,7 @@ const SKILL_DIRS_EXPR = installedPathExpr('skills')
 const CHECKER_PATH_EXPR = installedPathExpr('skills', 'tavern-cards', 'scripts', 'mechanical-check.mjs')
 
 /** Runtime-specific instructions stay here, not in upstream persona content. */
-const REVIEWER_APPENDIX = '\n\n## DSH 机械复查\n\n先调用只读工具 tavern_check，paths 传入本次送检的全部文件路径（每批至多 20 个）。工具读取当前实际文件；不要信任主代理口述的“已通过”，也不必手工重复词表扫描或计算断句比例。检查未完成不能宣称机械项通过。随后独立阅读正文与规则，判断适用范围、合法例外、活人感及跨条目重复/引用；机器零命中不等于语义通过。只报告问题与建议，不改稿，不运行 shell。'
+const REVIEWER_APPENDIX = '\n\n## DSH 机械复查\n\n先调用只读工具 tavern_check，paths 传入本次送检的全部文件路径（每批至多 20 个）。工具读取当前实际文件；不要信任主代理口述的“已通过”，也不必手工重复词表扫描或计算断句比例。检查未完成不能宣称机械项通过。随后独立阅读正文与规则，判断适用范围、合法例外、活人感及跨条目重复/引用；跨条目审稿仍由位置级流程承担，机器零命中不等于语义通过。只报告问题与建议，不改稿，不运行 shell。'
 
 function mechanicalCheckRow(base, reviewer = false) {
   const row = base.createNode({
@@ -169,6 +176,12 @@ function basePlugins() {
   if (plugins === undefined) {
     throw new Error(`gen-preset: ${BASE_PATCH} carries no ${BASE_PRESET_ROW_ID} row with config.plugins`)
   }
+  // D5: the rc.3 base adds tool-office; this preset intentionally keeps the
+  // minimal tool surface. A missing row is a base-contract change, not a reason
+  // to silently ship it.
+  const office = plugins.items.findIndex(row => row.get('id') === 'tool-office')
+  if (office < 0) throw new Error(`gen-preset: ${BASE_PATCH} carries no tool-office row to remove`)
+  plugins.items.splice(office, 1)
   return { base, plugins }
 }
 
@@ -293,12 +306,12 @@ function tavernGroup(agents) {
         id: 'tavern-stages',
         name: TAVERN_STAGES_PACKAGE,
         // Stage plugin + project tooling only. Delegation is owned by dsh
-        // 0.2.1: the rows below bind the official `spawn` provider, and each
+        // 0.2.2-rc.3: the rows below bind the official `spawn` provider, and each
         // child gets its persona and tools from its agentPreset preset.
       },
       // One delegation tool per agents/*.md. The agent body travels as the
       // child preset's persona prefix, never as row `persona`/`toolFilter`
-      // (0.2.1 rejects both). `agentOptions` stays unset so children inherit
+      // (0.2.2 rejects both). `agentOptions` stays unset so children inherit
       // the parent session's provider/model route, reasoning effort,
       // output-token limit, and working directory.
       ...agents.map(agent => ({
@@ -327,7 +340,7 @@ async function generate() {
     ' plus this deployment\'s `language`; the delegation rows come from validated upstream agents.',
   ].join('\n')
   group.getIn(['config', 1]).commentBefore = [
-    ' Stage plugin and project tooling only. Delegation is owned by dsh 0.2.1:',
+    ' Stage plugin and project tooling only. Delegation is owned by dsh 0.2.2-rc.3:',
     ' the rows below bind the official `spawn` provider and select an internal',
     ' child preset for each agent\'s persona and tool set.',
   ].join('\n')
@@ -372,6 +385,12 @@ async function generate() {
         { id: 'ui-sidebar-stage', name: SIDEBAR_PACKAGE },
       ],
     },
+    // The Office skills ship with the web-app bundle, not with the agent
+    // preset, so filtering the preset composition cannot reach them. An
+    // id-targeted disable at the bundle layer keeps them out of every session
+    // on this profile; `office-kit` stays, because the document preview
+    // sidebar renders Office files through it.
+    { id: 'skill-office', disabled: true },
   ])
   doc.commentBefore = [
     ' GENERATED by scripts/gen-preset.mjs — do not edit by hand.',

@@ -1,6 +1,6 @@
 # tavern-content
 
-[tavern-cards](https://github.com/ai4rpg/tavern-cards) 工作流在 DeepSeek Harness（dsh）上的内容仓：所有「内容与配置」而非插件代码的部分，一个克隆全带走。预设包**不发 npm**；它组合的插件（`@ai4rpg/dsh-tavern-stages`、`@ai4rpg/dsh-stage-switch` 等）作为预设包的依赖从 npm 安装。
+[tavern-cards](https://github.com/ai4rpg/tavern-cards) 工作流在 DeepSeek Harness（dsh）上的内容仓：所有「内容与配置」而非插件代码的部分，一个克隆全带走。预设包**不发 npm**（走 GitHub 检出或 release tarball）；它组合的插件（`@ai4rpg/dsh-tavern-stages`、`@ai4rpg/dsh-stage-switch` 等）作为预设包的依赖从 npm 安装。
 
 [English](README.md) | 中文
 
@@ -16,18 +16,9 @@
 | `web` 及同类（命令行启动） | `bash install.sh --profile web --verify`：脚本把本仓下载到 `~/tavern-content`（已有检出则改为拉取更新），再把预设包装进该 profile，tavern 插件作为依赖从 npm 到达。Windows 改用 `powershell -ExecutionPolicy Bypass -File install.ps1` |
 | 官方桌面端（`desktop`） | 在应用内安装：用应用自带的 `dsh`（菜单**管理 dsh 命令…**会把它注册到 PATH）跑 `dsh plugin --profile desktop add file:<克隆目录>/tavern-preset`，或把同样的路径填进侧边栏**插件**页的安装框。终端里的 `bash install.sh --profile desktop` 也是同一条路，脚本准备好检出后替你跑那条自带的 `dsh` |
 
-桌面端装完后完全退出再重开：新建会话时预设选择器里出现 **Tavern Cards**，就是装好了。桌面端什么都不用在本机装，dsh、node、pnpm 都随应用自带；命令行 profile 只需要 dsh 本身。
+桌面端装完后完全退出再重开：新建会话时预设选择器里出现 **Tavern Cards**，就是装好了。桌面端自带 dsh、node、pnpm；命令行 profile 只需要 dsh 本身。
 
-逐条步骤、装好后的验证、升级与卸载、排错都写在 [`tavern-preset/docs/install-guide.zh.md`](tavern-preset/docs/install-guide.zh.md)：桌面端见「官方桌面端」一节，命令行 profile 见「安装」与「校验」两节。装了什么、怎么定制，见 [`tavern-preset/README.zh.md`](tavern-preset/README.zh.md)。
-
-重跑脚本即升级（拉取更新并重装）；`--remove` 卸载预设包并保留本地检出。全部参数见脚本头部注释。
-
-手动安装（不使用脚本）：
-
-```sh
-git clone https://github.com/ai4rpg/tavern-content
-dsh plugin --profile web add file:<克隆目录的绝对路径>/tavern-preset
-```
+逐条步骤、装好后的验证、升级与卸载、排错，以及不用克隆的安装方式（release tarball 或 Git），都写在 [`tavern-preset/docs/install-guide.zh.md`](tavern-preset/docs/install-guide.zh.md)。装了什么、怎么定制，见 [`tavern-preset/README.zh.md`](tavern-preset/README.zh.md)。重跑脚本即升级（拉取更新并重装）；`--remove` 卸载预设包并保留本地检出，全部参数见脚本头部注释。
 
 ## 许可
 

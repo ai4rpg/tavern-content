@@ -1,0 +1,68 @@
+name: release-preset
+
+on:
+  push:
+    tags:
+      - 'tavern-preset-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pack and attach the preset tarball
+        working-directory: tavern-preset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          expected="${TAG#tavern-preset-v}"
+          if [ "$version" != "$expected" ]; then
+            echo "::error::tag $TAG does not match tavern-preset/package.json version $version"
+            exit 1
+          fi
+
+          assets="$RUNNER_TEMP/preset-release"
+          mkdir -p "$assets"
+          npm pack --ignore-scripts --pack-destination "$assets" >/dev/null
+          tarball="$(find "$assets" -maxdepth 1 -name '*.tgz' -print -quit)"
+          test -n "$tarball"
+          name="$(basename "$tarball")"
+
+          tar -tzf "$tarball" > "$assets/contents.txt"
+          grep -qx 'package/cordis.patch.yml' "$assets/contents.txt"
+          grep -q '^package/skills/' "$assets/contents.txt"
+
+          (cd "$assets" && sha256sum "$name" > "$name.sha256")
+          digest="$(cut -d' ' -f1 "$assets/$name.sha256")"
+
+          {
+            printf '%s\n\n' "@ai4rpg/dsh-tavern-preset@${version} — GitHub release tarball."
+            printf -- '- SHA-256: `%s`\n' "$digest"
+            printf -- '- Requires dsh `>=0.2.2-rc.3 <0.3.0-0`.\n'
+            printf -- '- This is a GitHub release asset, not an npm package.\n\n'
+            printf 'Install into a command-line profile:\n\n'
+            printf '```sh\n'
+            printf 'dsh plugin --profile web add https://github.com/%s/releases/download/%s/%s\n' "$REPOSITORY" "$TAG" "$name"
+            printf '```\n\n'
+            printf 'The desktop client uses the same URL through its bundled `dsh`. Verify the download against `%s.sha256` before installing.\n' "$name"
+          } > "$assets/notes.md"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$tarball" "$assets/$name.sha256" --clobber
+            gh release edit "$TAG" --notes-file "$assets/notes.md"
+          else
+            gh release create "$TAG" "$tarball" "$assets/$name.sha256" \
+              --verify-tag \
+              --title "tavern-preset ${version}" \
+              --notes-file "$assets/notes.md"
+          fi

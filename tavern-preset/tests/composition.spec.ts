@@ -17,6 +17,8 @@
 // `MOUNTED_ROW_IDS` and `CHILD_MOUNTED_ROW_IDS`).
 import { afterEach, describe, expect, it } from 'vitest'
 import { sep } from 'node:path'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   DELEGATION_TOOLS,
   PRESET_ID,
@@ -25,6 +27,7 @@ import {
   requestText,
   requestTools,
   readPatchInsertions,
+  resumeAgent,
   type Row,
   runTurn,
   startAgent,
@@ -61,7 +64,7 @@ describe('tavern-standard through the real loader', () => {
 
     // The resume contract: the mounted preset id is the declared one.
     expect(presetId).toBe(PRESET_ID)
-    // dsh 0.2.1 owns delegation: every tavern row binds this one provider.
+    // dsh 0.2.2 owns delegation: every tavern row binds this one provider.
     expect(await waitForSpawnProvider(composition.ctx)).toBe('spawn')
   })
 
@@ -77,7 +80,7 @@ describe('tavern-standard through the real loader', () => {
     const request = composition.adapter.requests.at(-1)!
     const text = requestText(request)
     // The persona row is the shipped prose override (not the official base)
-    // and carries no `{{cwd}}` suffix: 0.2.1 interpolates strictly.
+    // and carries no `{{cwd}}` suffix: 0.2.2 interpolates strictly.
     expect(text).toContain('SillyTavern character cards')
     expect(text).not.toContain('Your working directory is')
     // A fresh session opens in route; stage-switch injected its instruction.
@@ -131,6 +134,107 @@ describe('tavern-standard through the real loader', () => {
 })
 
 describe('tavern child presets through delegation', () => {
+  it('dispatches all four tools with rc.3 name receipts and durable parent completion notices', { timeout: 120_000 }, async () => {
+    const composition = await loadComposition()
+    compositions.push(composition)
+    const { ctx, adapter } = composition
+    const { agent } = await startAgent(ctx, 'tool-delegation-parent', composition.root)
+    await waitForSpawnProvider(ctx)
+    for (const tool of DELEGATION_TOOLS) {
+      const ended = Promise.withResolvers<string>()
+      const starts: { id: string, parentSessionId: string }[] = []
+      const order: string[] = []
+      const offStart = ctx.on('subagent/start', info => {
+        order.push('start')
+        starts.push({ id: info.id, parentSessionId: info.parentSessionId })
+      })
+      const off = ctx.on('subagent/end', info => {
+        order.push('end')
+        ended.resolve(info.stopReason)
+      })
+      adapter.respond(textResponse(`completed ${tool}`))
+      adapter.respond(textResponse(`received ${tool}`))
+      const callId = ToolCallId(`delegate-${tool}`)
+      try {
+        // A service-level call has scope and execution context but is not a
+        // committed model step, so it deliberately supplies no fake log field.
+        const batch = await ctx.tools.execute({
+          calls: [{ type: 'tool-call', id: callId, name: tool, arguments: JSON.stringify({ description: `Run ${tool}`, prompt: 'Return your result.' }) }],
+          agent, signal: AbortSignal.timeout(60_000),
+        })
+        expect(batch.results).toHaveLength(1)
+        expect(batch.results[0]!.callId).toBe(callId)
+        const result = batch.results[0]!.result
+        expect(result.isError).toBe(false)
+        if (result.isError) throw new Error(JSON.stringify(result))
+        expect(result.value).toEqual({ kind: 'activation', name: expect.any(String) })
+        const childId = await ctx.subagents.resolveName(agent, (result.value as { name: string }).name, AbortSignal.timeout(60_000))
+        expect(await ended.promise).toBe('completed')
+        expect(order).toEqual(['start', 'end'])
+        expect(starts).toEqual([{ id: childId, parentSessionId: agent.id }])
+        await agent.whenIdle()
+        const notices = agent.session.snapshotEvents().filter(event => event.type === 'user/message'
+          && event.data.source.kind === 'subagent-settled' && event.data.source.senderSessionId === childId)
+        expect(notices).toHaveLength(1)
+        expect(requestText(adapter.requests.at(-1)!)).toContain(`completed ${tool}`)
+        await ctx.sessions.flush(agent.session)
+        const parentLog = await ctx.sessionPersistence.open(agent.id, 'read')
+        try {
+          const durableNotices = (await parentLog.read()).events.filter(event => event.type === 'user/message'
+            && event.data.source.kind === 'subagent-settled' && event.data.source.senderSessionId === childId)
+          expect(durableNotices).toEqual(notices)
+        } finally { await parentLog.close() }
+        const stored = await ctx.sessionPersistence.open(childId, 'read')
+        try {
+          expect(stored.header.agentPreset).toBe(`tavern-child-${tool}`)
+          expect((await stored.read()).events.some(event => event.type === 'assistant/message')).toBe(true)
+        } finally { await stored.close() }
+        const listed = await ctx.tools.execute({
+          calls: [{ type: 'tool-call', id: ToolCallId(`list-${tool}`), name: 'list_agents', arguments: '{}' }],
+          agent, signal: AbortSignal.timeout(60_000),
+        })
+        expect(listed.results).toHaveLength(1)
+        const rows = listed.results[0]!.result
+        if (rows.isError) throw new Error(JSON.stringify(rows))
+        expect(rows.value).toContainEqual(expect.objectContaining({ name: (result.value as { name: string }).name, status: 'inactive' }))
+      } finally { off(); offStart() }
+    }
+  })
+
+  it('keeps a settled child visible to list_agents after a parent cold resume', { timeout: 120_000 }, async () => {
+    const composition = await loadComposition()
+    compositions.push(composition)
+    const { ctx, adapter } = composition
+    const started = await startAgent(ctx, 'lifecycle-parent', composition.root)
+    await waitForSpawnProvider(ctx)
+    adapter.respond(textResponse('child completed'))
+    adapter.respond(textResponse('parent noted the notice'))
+    const batch = await ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('lifecycle-delegate'), name: 'check-agent', arguments: JSON.stringify({ description: 'Run check-agent', prompt: 'Return your result.' }) }],
+      agent: started.agent, signal: AbortSignal.timeout(60_000),
+    })
+    const result = batch.results[0]!.result
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error(JSON.stringify(result))
+    const receipt = result.value as { kind: 'activation', name: string }
+    await started.agent.whenIdle()
+    await ctx.sessions.flush(started.agent.session)
+    await started.dispose()
+
+    const resumed = await resumeAgent(ctx, 'lifecycle-parent')
+    try {
+      expect(resumed.presetId).toBe(PRESET_ID)
+      const listed = await ctx.tools.execute({
+        calls: [{ type: 'tool-call', id: ToolCallId('lifecycle-list'), name: 'list_agents', arguments: '{}' }],
+        agent: resumed.agent, signal: AbortSignal.timeout(60_000),
+      })
+      expect(listed.results).toHaveLength(1)
+      const rows = listed.results[0]!.result
+      if (rows.isError) throw new Error(JSON.stringify(rows))
+      expect(rows.value).toContainEqual(expect.objectContaining({ name: receipt.name, status: 'inactive' }))
+    } finally { await resumed.dispose() }
+  })
+
   it('runs check-agent with its own body and a read-only tool surface', { timeout: 60_000 }, async () => {
     const composition = await loadComposition()
     compositions.push(composition)
@@ -149,7 +253,7 @@ describe('tavern child presets through delegation', () => {
     expect(text).toContain('## DSH 机械复查')
     // The reviewer reports; it never edits, runs commands, or sees the parent's
     // stage/delegation surface.
-    for (const tool of ['write', 'edit', 'bash', 'pwsh', 'goto_stage', 'tavern_forge']) {
+    for (const tool of ['write', 'edit', 'apply_patch', 'bash', 'pwsh', 'goto_stage', 'tavern_forge']) {
       expect(tools, tool).not.toContain(tool)
     }
   })

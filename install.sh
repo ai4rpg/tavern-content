@@ -211,7 +211,7 @@ if [ -n "${DSH_CMD:-}" ]; then
 elif command -v dsh >/dev/null 2>&1; then
   DSH=(dsh)
 else
-  DSH=(npx -y @deepseek-ai/dsh)
+  DSH=(npx -y @deepseek-ai/dsh@0.2.2-rc.3)
 fi
 
 # ---- 卸载模式 -------------------------------------------------------------
@@ -310,15 +310,15 @@ else
   HAS_PNPM=0
   if command -v pnpm >/dev/null 2>&1; then HAS_PNPM=1; fi
   if [ "$HAS_NODE" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-    fatal "缺少 node —— 预设包要求 node ^22.19 || >=24（https://nodejs.org）"
+    fatal "缺少 node —— 预设包要求 node >=24.9.0（https://nodejs.org）"
   fi
   if [ "$HAS_PNPM" = 0 ] && [ "$DRY_RUN" = 0 ]; then
     fatal "缺少 pnpm —— dsh plugin 转发到 pnpm 安装（npm install -g pnpm，或启用 corepack）"
   fi
   if [ "$HAS_NODE" = 1 ]; then
     NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-    if [ "$NODE_MAJOR" -lt 22 ]; then
-      say "  ⚠ node $NODE_MAJOR 偏旧：预设包要求 ^22.19 || >=24，继续但可能安装失败"
+    if [ "$NODE_MAJOR" -lt 24 ]; then
+      say "  ⚠ node $NODE_MAJOR 偏旧：预设包要求 >=24.9.0，继续但可能安装失败"
     fi
   fi
   if [ "$DRY_RUN" = 1 ]; then

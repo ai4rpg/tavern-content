@@ -54,11 +54,11 @@ description: "角色卡与世界书的叙事设计阶段：大方向讨论、世
 
 ## 子代理
 
-调用委派工具后立即返回 activation id；子代理的最终结果以完成通知送达。主代理在 prompt 参数里携带下表「输入」一列的参数；依赖结果才能继续的步骤，必须等完成通知到达后再继续，不要从工具返回值里取结果。
+调用委派工具后立即返回 activation receipt（子代理名称）；子代理的最终结果以完成通知送达。主代理在 prompt 参数里携带下表「输入」一列的参数；依赖结果的步骤以完成通知送达的结果为准，不从工具返回值里取结果。
 
 | 子代理 | 作用 | 输入 | 输出 |
 |--------|------|------|------|
-| conversion-agent | 材料转化分片处理 | 源文件路径、行范围、输出路径；前序大纲片段路径（如有） | 按规范写入输出路径，并运行 `scripts/validate-conversion-outline.mjs` 自验片段；另返回 `missing_names` 供主代理合并 |
+| conversion-agent | 材料转化分片处理 | 源文件路径、行范围、输出路径；已完成大纲片段路径（如有） | 按规范写入输出路径，并运行 `scripts/validate-conversion-outline.mjs` 自验片段；另返回 `missing_names` 供主代理合并 |
 
 长文本分片调用与合并的衔接见 `references/conversion.md`、`references/conversion/outline.md`。
 

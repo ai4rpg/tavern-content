@@ -51,8 +51,9 @@ import { Loader } from '@deepseek-ai/cordis-plugin-loader'
 import { Include } from '@deepseek-ai/cordis-plugin-include'
 import '@deepseek-ai/cordis-plugin-loader'
 import '@deepseek-ai/cordis-plugin-include'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentPreset from '@deepseek-ai/dsh-agent-preset'
-import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
+import AgentPresetRegistry, { auditRows } from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionProjection from '@deepseek-ai/dsh-session-projection'
 import SkillRegistry, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
@@ -79,6 +80,7 @@ const PATCH_FILE = 'cordis.patch.yml'
 /** The package the generated expression resolves against. */
 const SELF_PACKAGE = '@ai4rpg/dsh-tavern-preset'
 const SESSION_PROJECTION_PACKAGE = '@deepseek-ai/dsh-session-projection'
+const AGENT_REGISTRY_PACKAGE = '@deepseek-ai/dsh-agent'
 const SKILL_REGISTRY_PACKAGE = '@deepseek-ai/dsh-skill'
 const PRESET_REGISTRY_PACKAGE = '@deepseek-ai/dsh-agent-preset-registry'
 const AGENT_PRESET_PACKAGE = '@deepseek-ai/dsh-agent-preset'
@@ -242,6 +244,7 @@ function composition(skillRow: YAMLMap, decoySkillsDir: string): string {
   plugins.add(skillRow)
   const doc = new Document([
     { name: SESSION_PROJECTION_PACKAGE },
+    { name: AGENT_REGISTRY_PACKAGE },
     { name: SKILL_REGISTRY_PACKAGE },
     { name: PRESET_REGISTRY_PACKAGE, config: { default: PRESET_ID } },
     {
@@ -320,6 +323,7 @@ export async function mountPresetSkillComposition(options: MountOptions = {}): P
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       [SESSION_PROJECTION_PACKAGE, SessionProjection],
+      [AGENT_REGISTRY_PACKAGE, AgentRegistry],
       [SKILL_REGISTRY_PACKAGE, SkillRegistry],
       [PRESET_REGISTRY_PACKAGE, AgentPresetRegistry],
       [AGENT_PRESET_PACKAGE, AgentPreset],
@@ -334,6 +338,11 @@ export async function mountPresetSkillComposition(options: MountOptions = {}): P
     } as unknown as NonNullable<typeof ctx.loader.internal>
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
     await ctx.loader.await()
+
+    const host = await auditRows(ctx.loader)
+    if (host.failed.length > 0 || host.pending.length > 0) {
+      throw new Error(`skill host composition is not usable:\n${[...host.failed, ...host.pending].join('\n')}`)
+    }
 
     // A preset that failed to mount keeps its row green, so the failure has to
     // be read from the roster: otherwise these tests would report "no skills"
